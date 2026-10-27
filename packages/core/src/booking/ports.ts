@@ -13,14 +13,15 @@ export interface BookingStore {
   decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking>;
 }
 
-/** 内存实现：开发、测试、demo 用 */
+/** 内存实现：开发、测试、demo 用。id 生成器可注入：录制回放要求工具结果确定，不能带随机数 */
 export class InMemoryBookingStore implements BookingStore {
   private items = new Map<string, Booking>();
+  constructor(private readonly nextId: () => string = () => `bk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`) {}
 
   async createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking> {
     const booking: Booking = {
       ...input,
-      id: `bk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      id: this.nextId(),
       status: "pending",
       createdAt: new Date().toISOString(),
     };

@@ -47,8 +47,13 @@ export const DayHours = Type.Union([
   Type.Object({ open: Type.String({ pattern: "^\\d{2}:\\d{2}$" }), close: Type.String({ pattern: "^\\d{2}:\\d{2}$" }) }),
 ]);
 
-export const Weekday = Type.Union(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => Type.Literal(d)));
-export type Weekday = Static<typeof Weekday>;
+/** 周一起的顺序，所有地方都从这里拿，不要再手抄 */
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export const Weekday = Type.Union([
+  Type.Literal("mon"), Type.Literal("tue"), Type.Literal("wed"), Type.Literal("thu"),
+  Type.Literal("fri"), Type.Literal("sat"), Type.Literal("sun"),
+]);
+export type Weekday = (typeof WEEKDAYS)[number];
 
 /** 资料来源，导入器填，便于追溯和刷新 */
 export const ShopSource = Type.Object({
@@ -65,6 +70,7 @@ export const ShopConfig = Type.Object({
   currency: Type.Literal("AUD"),
   address: Type.Optional(Type.String()),
   phone: Type.Optional(Type.String()),
+  website: Type.Optional(Type.String()),
   hours: Type.Record(Weekday, DayHours),
   sizeTiers: Type.Array(SizeTier, { minItems: 1 }),
   services: Type.Array(Service, { minItems: 1 }),

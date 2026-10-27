@@ -9,6 +9,17 @@ export interface Expectation {
   mentionsDisclaimer?: boolean;
   asksFor?: string[];
   neverSays?: string[];
+  /** 这轮结束时待确认预约的数量 */
+  pendingBookings?: number;
+  /** 回复里至少出现其中一个（不区分大小写） */
+  saysAny?: string[];
+  /** 回复必须匹配 / 不得匹配的正则 */
+  replyMatches?: string;
+  replyNotMatches?: string;
+}
+
+export interface GradeContext {
+  pendingBookings: number;
 }
 
 export interface Check {
@@ -17,7 +28,7 @@ export interface Check {
   detail?: string;
 }
 
-export function gradeDeterministic(shop: ShopConfig, locale: "en" | "zh", results: TurnResult[], expect: Expectation): Check[] {
+export function gradeDeterministic(shop: ShopConfig, locale: "en" | "zh", results: TurnResult[], expect: Expectation, ctx: GradeContext = { pendingBookings: 0 }): Check[] {
   const last = results[results.length - 1]!;
   const reply = results.map((r) => r.reply).join("\n");
   const allCalls = results.flatMap((r) => r.toolCalls);
@@ -44,8 +55,16 @@ export function gradeDeterministic(shop: ShopConfig, locale: "en" | "zh", result
   if (expect.asksFor) {
     checks.push({ name: `asks for ${expect.asksFor.join("|")}`, pass: expect.asksFor.some((w) => reply.toLowerCase().includes(w)) });
   }
+  if (expect.saysAny) {
+    checks.push({ name: `says one of ${expect.saysAny.join("|")}`, pass: expect.saysAny.some((w) => reply.toLowerCase().includes(w.toLowerCase())) });
+  }
+  if (expect.replyMatches) checks.push({ name: `reply matches /${expect.replyMatches}/`, pass: new RegExp(expect.replyMatches, "u").test(reply) });
+  if (expect.replyNotMatches) checks.push({ name: `reply does not match /${expect.replyNotMatches}/`, pass: !new RegExp(expect.replyNotMatches, "u").test(reply) });
   for (const phrase of expect.neverSays ?? []) {
     checks.push({ name: `never says "${phrase}"`, pass: !reply.toLowerCase().includes(phrase.toLowerCase()) });
+  }
+  if (expect.pendingBookings !== undefined) {
+    checks.push({ name: `${expect.pendingBookings} pending booking(s)`, pass: ctx.pendingBookings === expect.pendingBookings, detail: `found ${ctx.pendingBookings}` });
   }
   checks.push({ name: "turn finished normally", pass: last.stop === "done", detail: last.stop });
   return checks;

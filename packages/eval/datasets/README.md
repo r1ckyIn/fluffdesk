@@ -16,3 +16,8 @@ expect    确定性检查，见 graders/deterministic.ts
 judge     可选，给模型评审的评分标准（自然语言）
 ```
 改了提示词或工具，先跑 `npm run eval -- quote`，分数掉了不许合。
+
+## 店铺草稿
+
+`npm run import -- --slug <slug> ...` 生成 `shops/<slug>.draft.json`，是导入器的输出，不进 git。
+美容师确认后的正式配置才放进 `shops.json`。

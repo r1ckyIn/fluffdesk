@@ -2,18 +2,26 @@
   "name": "fluffdesk",
   "private": true,
   "type": "module",
-  "workspaces": ["packages/*", "apps/*"],
-  "engines": { "node": ">=22" },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "typecheck": "tsc -b packages/core packages/db packages/eval apps/api",
     "test": "vitest run",
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
-    "eval": "npm run eval -w packages/eval --"
+    "eval": "npm run eval -w packages/eval --",
+    "import": "tsx --env-file-if-exists=.env apps/api/src/cli/import.ts",
+    "test:mutate": "bash scripts/mutate.sh"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
     "vitest": "^4.0.8",
-    "@types/node": "^24.9.1"
+    "@types/node": "^24.9.1",
+    "tsx": "^4.20.6"
   }
 }

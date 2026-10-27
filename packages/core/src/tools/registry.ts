@@ -41,6 +41,8 @@ export class ToolRegistry {
   private readonly specs = new Map<string, ToolSpec>();
 
   register<T extends TSchema>(spec: ToolSpec<T>): this {
+    // 类型上已经排除了 write，但 JS 调用方绕得过类型，运行时再拦一次
+    if ((spec.permission as ToolPermission) === "write") throw new Error(`write-level tool cannot be exposed to the agent: ${spec.definition.name}`);
     if (this.specs.has(spec.definition.name)) throw new Error(`tool already registered: ${spec.definition.name}`);
     this.specs.set(spec.definition.name, spec as unknown as ToolSpec);
     return this;
