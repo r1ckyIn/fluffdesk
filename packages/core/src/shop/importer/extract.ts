@@ -1,6 +1,6 @@
 import { Type, validateToolCall, type Context, type ImageContent, type Message, type Static, type TextContent, type Tool, type ToolCall } from "@earendil-works/pi-ai";
 import type { Gateway } from "../../llm/gateway.js";
-import { DayHours, I18nText, PriceRule, SizeTier, Weekday, type ShopConfig, type ShopSource } from "../schema.js";
+import { DayHours, I18nText, PriceRule, SizeTier, WEEKDAYS, Weekday, type ShopConfig, type ShopSource } from "../schema.js";
 import type { ShopDraft } from "./index.js";
 
 /**
@@ -53,7 +53,6 @@ export const DEFAULT_QUOTE_DISCLAIMER = {
   en: "Final price is assessed in store based on size, coat condition and behaviour.",
   zh: "最终价格以到店评估体型、毛况和配合程度为准。",
 };
-const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const SYSTEM = `You extract a pet grooming salon's public profile into a structured draft for a booking assistant.
 
@@ -88,9 +87,18 @@ export async function extractShopDraft(gateway: Gateway, input: ExtractInput): P
       break;
     }
     messages.push(res);
-    const call = res.content.find((b): b is ToolCall => b.type === "toolCall" && b.name === submitDraftTool.name);
+    const calls = res.content.filter((b): b is ToolCall => b.type === "toolCall");
+    const call = calls.find((c) => c.name === submitDraftTool.name);
+    // 每个 toolCall 都要有 toolResult，否则下一次请求会被 provider 拒掉，白烧重试次数
+    const answerOthers = (reason: string) => {
+      for (const other of calls) {
+        if (other === call) continue;
+        messages.push({ role: "toolResult", toolCallId: other.id, toolName: other.name, content: [{ type: "text", text: reason }], isError: true, timestamp: Date.now() });
+      }
+    };
     if (!call) {
       notes.push(`attempt ${attempt}: no tool call`);
+      answerOthers("Unknown tool. Call submit_shop_draft instead.");
       messages.push({ role: "user", content: "Call submit_shop_draft with what you found.", timestamp: Date.now() });
       continue;
     }
@@ -99,6 +107,7 @@ export async function extractShopDraft(gateway: Gateway, input: ExtractInput): P
       draft = validateToolCall([submitDraftTool], call) as Draft;
     } catch (e) {
       notes.push(`attempt ${attempt}: invalid draft: ${(e as Error).message}`);
+      answerOthers("Ignored: only one submit_shop_draft call is accepted.");
       messages.push({ role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text: `Invalid: ${(e as Error).message}. Fix and call again.` }], isError: true, timestamp: Date.now() });
       continue;
     }
@@ -135,19 +144,30 @@ export function verifyDraft(draft: Draft, input: ExtractInput, notes: string[] =
 
   if (draft.services) {
     let verified = 0;
+    let missingDuration = 0;
     const services: ShopConfig["services"] = [];
     for (const s of draft.services) {
-      const numbersOk = haystack ? s.prices.every((p) => haystack.includes(String(p.min)) && haystack.includes(String(p.max))) : true;
-      const evidenceOk = haystack ? containsLoosely(haystack, s.evidence) : true;
-      if (!numbersOk || !evidenceOk) {
-        notes.push(`service ${s.id}: evidence not found in source, dropped (evidence: "${s.evidence.slice(0, 80)}")`);
+      // 有原文时：数字必须出现在这条服务自己的 evidence 片段里，片段再去原文里核。
+      // 不能在整页里找数字：电话号码里的 55 会让一个编出来的 $55 通过。
+      // 只有图片时没有原文可核，evidence 是模型自己写的，核了也没意义，靠置信度封顶表达不确定
+      const evidence = normalize(s.evidence);
+      const numbersInEvidence = !haystack || s.prices.every((p) => evidence.includes(String(p.min)) && evidence.includes(String(p.max)));
+      const evidenceInSource = !haystack || containsLoosely(haystack, s.evidence);
+      if (!numbersInEvidence || !evidenceInSource) {
+        notes.push(`service ${s.id}: prices not backed by evidence in source, dropped (evidence: "${s.evidence.slice(0, 80)}")`);
         continue;
       }
       verified++;
+      if (s.durationMin === undefined) {
+        missingDuration++;
+        notes.push(`service ${s.id}: duration not stated, placeholder 60 min, confirm with the shop`);
+      }
       services.push({ id: s.id, name: s.name, durationMin: s.durationMin ?? 60, prices: s.prices });
     }
     if (services.length) partial.services = services;
     confidence.services = draft.services.length ? verified / draft.services.length : 0;
+    if (missingDuration) confidence.services = Math.min(confidence.services, 0.7);
+    if (!haystack && services.length) notes.push("prices read from images, not verified against text; confirm with the shop");
   }
 
   return { source: input.source, partial, confidence, rawNotes: [...notes, ...draft.unsure.map((u) => `unsure: ${u}`)] };

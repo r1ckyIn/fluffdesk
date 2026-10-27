@@ -54,9 +54,7 @@ export function mergeServices(a: ShopConfig["services"], b: ShopConfig["services
 export function richnessOf(key: keyof ShopConfig, value: unknown): number {
   if (key === "services" && Array.isArray(value)) {
     const services = value as ShopConfig["services"];
-    const sizes = new Set(services.flatMap((s) => s.prices.map((p) => p.size)));
-    const ranged = services.flatMap((s) => s.prices).filter((p) => p.max > p.min).length;
-    return sizes.size * 10 + ranged + services.length * 0.1;
+    return services.reduce((sum, s) => sum + serviceRichness(s), 0) + services.length * 0.1;
   }
   if (key === "sizeTiers" && Array.isArray(value)) {
     const tiers = value as ShopConfig["sizeTiers"];

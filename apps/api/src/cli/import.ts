@@ -24,23 +24,25 @@ if (!slug || (!args.website && !args.google && !args.screenshots)) {
 }
 
 const gateway = createGateway();
-const drafts: ShopDraft[] = [];
+const jobs: Array<Promise<ShopDraft>> = [];
 
 if (args.google) {
   console.log(`google: "${args.google}"`);
-  drafts.push(await importGoogleBusiness(args.google));
+  jobs.push(importGoogleBusiness(args.google));
 }
 if (args.website) {
   console.log(`website: ${args.website}`);
-  drafts.push(await importWebsite(gateway, args.website));
+  jobs.push(importWebsite(gateway, args.website));
 }
 if (args.screenshots) {
   const dir = resolve(BASE, args.screenshots);
   const files = readdirSync(dir).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).sort();
   console.log(`screenshots: ${files.length} file(s) in ${dir}`);
   const images = files.map((f) => ({ data: readFileSync(join(dir, f)).toString("base64"), mimeType: mime(f) }));
-  if (images.length) drafts.push(await importScreenshots(gateway, images, { origin: "instagram", name: args.name }));
+  if (images.length) jobs.push(importScreenshots(gateway, images, { origin: "instagram", name: args.name }));
 }
+// 三路互不依赖，并行跑
+const drafts = await Promise.all(jobs);
 
 const merged = mergeDrafts(drafts, { slug, currency: "AUD", timezone: "Australia/Sydney", ...(args.name ? { name: args.name } : {}) });
 const outDir = args.out ? resolve(BASE, args.out) : resolve(REPO_ROOT, "packages/eval/datasets/shops");

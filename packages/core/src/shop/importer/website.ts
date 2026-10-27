@@ -33,19 +33,24 @@ export async function importWebsite(gateway: Gateway, url: string, opts: Website
   const links = extractLinks(home.html, homeUrl)
     .filter((l) => !seen.has(l) && INTERESTING.test(new URL(l).pathname))
     .slice(0, maxPages - 1);
-  for (const link of links) {
-    const page = await fetchPage(fetchImpl, link);
+  // 子页并行抓，慢站点不用一页页等 15 秒
+  const fetched = await Promise.all(links.map((link) => fetchPage(fetchImpl, link)));
+  for (const page of fetched) {
     if (page && !seen.has(page.url.replace(/\/$/, ""))) {
       seen.add(page.url.replace(/\/$/, ""));
       pages.push({ url: page.url, text: htmlToText(page.html) });
     }
   }
 
-  let text = pages.map((p) => `=== ${p.url} ===\n${p.text}`).join("\n\n");
-  if (text.length > maxChars) text = text.slice(0, maxChars) + "\n[truncated]";
+  // 每页单独限长，首页的导航页脚不能把价格页挤掉
+  const perPage = Math.floor(maxChars / pages.length);
+  const text = pages
+    .map((p) => `=== ${p.url} ===\n${p.text.length > perPage ? p.text.slice(0, perPage) + "\n[truncated]" : p.text}`)
+    .join("\n\n");
 
   const draft = await extractShopDraft(gateway, { source, text, hints: {} });
-  draft.partial.website = url;
+  draft.partial.website = homeUrl;
+  draft.confidence.website = 1;
   draft.rawNotes = [`fetched ${pages.length} page(s): ${pages.map((p) => p.url).join(", ")}`, ...(draft.rawNotes ?? [])];
   return draft;
 }

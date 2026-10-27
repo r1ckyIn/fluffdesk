@@ -1,4 +1,4 @@
-import type { ShopConfig, Weekday } from "../schema.js";
+import { WEEKDAYS, type ShopConfig, type Weekday } from "../schema.js";
 import type { ShopDraft } from "./index.js";
 
 /**
@@ -21,7 +21,8 @@ interface PlacesResponse {
   }>;
 }
 
-const DAYS: Weekday[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+/** Places 的 day 从周日 0 起 */
+const DAYS: Weekday[] = ["sun", ...WEEKDAYS.slice(0, 6)];
 
 export async function importGoogleBusiness(query: string, opts: GoogleImportOptions = {}): Promise<ShopDraft> {
   const apiKey = opts.apiKey ?? process.env.GOOGLE_MAPS_API_KEY;
@@ -63,13 +64,13 @@ export async function importGoogleBusiness(query: string, opts: GoogleImportOpti
   if (place.displayName?.text) { partial.name = place.displayName.text; confidence.name = 0.95; }
   if (place.formattedAddress) { partial.address = place.formattedAddress; confidence.address = 0.95; }
   if (place.nationalPhoneNumber) { partial.phone = place.nationalPhoneNumber; confidence.phone = 0.95; }
-  if (place.websiteUri) partial.website = place.websiteUri;
+  if (place.websiteUri) { partial.website = place.websiteUri; confidence.website = 0.95; }
   if (place.regularOpeningHours?.periods) { partial.hours = mapHours(place.regularOpeningHours.periods); confidence.hours = 0.9; }
   return { source: { ...source, url: `https://www.google.com/maps/place/?q=place_id:${place.id}` }, partial, confidence, rawNotes: notes };
 }
 
 export function mapHours(periods: NonNullable<NonNullable<PlacesResponse["places"]>[number]["regularOpeningHours"]>["periods"]): ShopConfig["hours"] {
-  const hours = Object.fromEntries(DAYS.map((d) => [d, null])) as ShopConfig["hours"];
+  const hours = Object.fromEntries(WEEKDAYS.map((d) => [d, null])) as ShopConfig["hours"];
   for (const p of periods ?? []) {
     const day = DAYS[p.open.day];
     if (!day || !p.close) continue;

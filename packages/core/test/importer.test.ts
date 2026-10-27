@@ -29,7 +29,7 @@ const goodDraft: Draft = {
   hours: { tue: { open: "09:00", close: "17:00" }, sat: { open: "09:00", close: "17:00" } },
   sizeTiers: [{ id: "small", label: { en: "Small", zh: "小型" }, maxKg: 10 }, { id: "medium", label: { en: "Medium", zh: "中型" } }],
   services: [
-    { id: "full-groom", name: { en: "Full groom", zh: "全套美容" }, prices: [{ size: "small", min: 90, max: 120 }, { size: "medium", min: 120, max: 160 }], evidence: "Full groom small (under 10kg) $90 - $120" },
+    { id: "full-groom", name: { en: "Full groom", zh: "全套美容" }, prices: [{ size: "small", min: 90, max: 120 }, { size: "medium", min: 120, max: 160 }], evidence: "Full groom small (under 10kg) $90 - $120 Full groom medium $120 - $160" },
     { id: "nail-trim", name: { en: "Nail trim", zh: "剪指甲" }, prices: [{ size: "small", min: 15, max: 15 }], evidence: "Nail trim $15" },
   ],
   unsure: ["bath & tidy only states a 'from' price"],
@@ -47,6 +47,28 @@ describe("verifyDraft", () => {
   });
 });
 
+describe("verifyDraft price evidence", () => {
+  it("rejects a price whose digits only appear elsewhere on the page", () => {
+    const text = "Call 02 9555 1234. Full groom $120";
+    const d = verifyDraft({ services: [
+      { id: "nail-trim", name: { en: "Nail trim", zh: "剪指甲" }, prices: [{ size: "all", min: 55, max: 55 }], evidence: "Full groom $120" },
+      { id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "all", min: 120, max: 120 }], evidence: "Full groom $120" },
+    ], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text });
+    expect(d.partial.services?.map((s) => s.id)).toEqual(["full-groom"]);
+  });
+  it("keeps image-sourced services even when evidence is only a label", () => {
+    const d = verifyDraft({ services: [{ id: "style-cut", name: { en: "Style Cut", zh: "造型" }, durationMin: 45, prices: [{ size: "xs", min: 140, max: 140 }, { size: "s", min: 155, max: 155 }], evidence: "Style Cut" }], unsure: [] }, { source: { type: "instagram", fetchedAt: "" }, images: [{ data: "", mimeType: "image/png" }] });
+    expect(d.partial.services).toHaveLength(1);
+    expect(d.rawNotes?.some((n) => n.includes("read from images"))).toBe(true);
+  });
+  it("flags missing durations instead of silently defaulting", () => {
+    const d = verifyDraft({ services: [{ id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "all", min: 120, max: 120 }], evidence: "Full groom $120" }], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "Full groom $120" });
+    expect(d.partial.services?.[0]?.durationMin).toBe(60);
+    expect(d.confidence.services).toBe(0.7);
+    expect(d.rawNotes?.some((n) => n.includes("duration not stated"))).toBe(true);
+  });
+});
+
 describe("extractShopDraft", () => {
   it("retries on invalid tool args and succeeds on a valid call", async () => {
     const { faux, gateway } = fauxGateway();
@@ -59,6 +81,21 @@ describe("extractShopDraft", () => {
     expect(d.partial.name).toBe("Fluffy Paws Newtown");
     expect(faux.state.callCount).toBe(3);
     expect(d.rawNotes?.filter((n) => n.startsWith("attempt"))).toHaveLength(2);
+  });
+  it("answers every tool call in a message so the next request is valid", async () => {
+    const { faux, gateway } = fauxGateway();
+    let secondRequest: { messages: Array<{ role: string; toolName?: string }> } | undefined;
+    faux.setResponses([
+      fauxAssistantMessage([fauxToolCall("submit_draft", { x: 1 }), fauxToolCall("submit_shop_draft", { name: 123 })], { stopReason: "toolUse" }),
+      (context) => {
+        secondRequest = context as never;
+        return fauxAssistantMessage([fauxToolCall("submit_shop_draft", { name: "Ok", unsure: [] })], { stopReason: "toolUse" });
+      },
+    ]);
+    const d = await extractShopDraft(gateway, { source: { type: "manual", fetchedAt: "" }, text: "Ok" });
+    expect(d.partial.name).toBe("Ok");
+    const results = secondRequest?.messages.filter((m) => m.role === "toolResult") ?? [];
+    expect(results.map((m) => m.toolName).sort()).toEqual(["submit_draft", "submit_shop_draft"]);
   });
   it("gives up gracefully after repeated failures", async () => {
     const { faux, gateway } = fauxGateway();
@@ -83,6 +120,23 @@ describe("importWebsite", () => {
     faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" })]);
     await importWebsite(gateway, "https://pawsgrooming.example", { fetch: fakeFetch });
     expect(fetched).toEqual(["https://pawsgrooming.example", "https://www.pawsgrooming.example/pricing"]);
+  });
+  it("caps each page separately so a bloated homepage cannot crowd out the pricing page", async () => {
+    const { faux, gateway } = fauxGateway();
+    let seenText = "";
+    const fakeFetch = (async (url: string) => {
+      const html = url.endsWith("/pricing") ? PRICING_HTML : `<a href="/pricing">p</a>` + "<p>nav</p>".repeat(3000);
+      return new Response(html, { status: 200, headers: { "content-type": "text/html" } });
+    }) as unknown as typeof fetch;
+    faux.setResponses([(context) => {
+      // 归一化后 messages[0] 是系统消息，找第一条 user
+      const first = context.messages.find((m) => m.role === "user") as { content: Array<{ type: string; text?: string }> };
+      seenText = first.content.map((c) => c.text ?? "").join("");
+      return fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" });
+    }]);
+    await importWebsite(gateway, "https://big.example", { fetch: fakeFetch, maxChars: 4000 });
+    expect(seenText).toContain("Full groom medium $120 - $160");
+    expect(seenText).toContain("[truncated]");
   });
   it("fetches home plus interesting same-origin pages only", async () => {
     const { faux, gateway } = fauxGateway();
@@ -109,6 +163,13 @@ describe("html helpers", () => {
   });
   it("keeps same-origin links only", () => {
     expect(extractLinks(SITE_HTML, "https://fluffypaws.example")).toEqual(["https://fluffypaws.example/pricing", "https://fluffypaws.example/blog/post-1"]);
+  });
+  it("strips fragments instead of dropping fragment links, and skips mailto/tel", () => {
+    const html = `<a href="/services#pricing">p</a><a href="mailto:a@b.c">m</a><a href="tel:123">t</a>`;
+    expect(extractLinks(html, "https://x.example")).toEqual(["https://x.example/services"]);
+  });
+  it("survives out-of-range numeric entities and decodes hex ones", () => {
+    expect(htmlToText("<p>a &#99999999; b &#x41;</p>")).toBe("a &#99999999; b A");
   });
 });
 
