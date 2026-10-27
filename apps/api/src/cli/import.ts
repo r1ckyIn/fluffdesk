@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { extname, join, resolve } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createGateway, importGoogleBusiness, importScreenshots, importWebsite, mergeDrafts, LOW_CONFIDENCE, type ShopDraft } from "@fluffdesk/core";
 
 /**
@@ -13,6 +14,8 @@ import { createGateway, importGoogleBusiness, importScreenshots, importWebsite, 
  */
 /** npm run 会把 cwd 切到 apps/api，相对路径按用户敲命令的目录算 */
 const BASE = process.env.INIT_CWD ?? process.cwd();
+/** 默认输出目录按仓库根算，和调用目录无关 */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const args = parseArgs(process.argv.slice(2));
 const slug = args.slug;
 if (!slug || (!args.website && !args.google && !args.screenshots)) {
@@ -40,7 +43,7 @@ if (args.screenshots) {
 }
 
 const merged = mergeDrafts(drafts, { slug, currency: "AUD", timezone: "Australia/Sydney", ...(args.name ? { name: args.name } : {}) });
-const outDir = resolve(BASE, args.out ?? "packages/eval/datasets/shops");
+const outDir = args.out ? resolve(BASE, args.out) : resolve(REPO_ROOT, "packages/eval/datasets/shops");
 mkdirSync(outDir, { recursive: true });
 const outFile = join(outDir, `${slug}.draft.json`);
 writeFileSync(outFile, JSON.stringify({ ...merged, drafts, generatedAt: new Date().toISOString() }, null, 2));

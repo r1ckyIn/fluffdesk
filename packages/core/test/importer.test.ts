@@ -4,7 +4,7 @@ import { createGateway } from "../src/llm/gateway.js";
 import { extractShopDraft, verifyDraft, type Draft } from "../src/shop/importer/extract.js";
 import { importWebsite } from "../src/shop/importer/website.js";
 import { importGoogleBusiness, mapHours } from "../src/shop/importer/google.js";
-import { mergeDrafts } from "../src/shop/importer/index.js";
+import { mergeDrafts, mergeServices } from "../src/shop/importer/index.js";
 import { htmlToText, extractLinks } from "../src/shop/importer/html.js";
 
 function fauxGateway() {
@@ -42,7 +42,7 @@ describe("verifyDraft", () => {
     expect(d.partial.services?.map((s) => s.id)).toEqual(["full-groom"]);
     expect(d.confidence.services).toBe(0.5);
     expect(d.confidence.phone).toBe(1);
-    expect(d.confidence.hours).toBe(1);
+    expect(d.confidence.hours).toBeCloseTo(2 / 7);
     expect(d.rawNotes?.some((n) => n.includes("nail-trim"))).toBe(true);
   });
 });
@@ -70,6 +70,20 @@ describe("extractShopDraft", () => {
 });
 
 describe("importWebsite", () => {
+  it("matches interesting pages by path, not by domain, and follows redirects for link resolution", async () => {
+    const { faux, gateway } = fauxGateway();
+    const fetched: string[] = [];
+    const fakeFetch = (async (url: string) => {
+      fetched.push(url);
+      const finalUrl = url.replace("https://pawsgrooming.example", "https://www.pawsgrooming.example");
+      const html = url.includes("/pricing") ? PRICING_HTML : `<a href="https://www.pawsgrooming.example/gallery">g</a><a href="https://www.pawsgrooming.example/pricing">p</a>`;
+      // Response.url 是只读 getter，手工造一个带 url 的响应对象
+      return { ok: true, url: finalUrl, headers: new Headers({ "content-type": "text/html" }), text: async () => html } as unknown as Response;
+    }) as unknown as typeof fetch;
+    faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" })]);
+    await importWebsite(gateway, "https://pawsgrooming.example", { fetch: fakeFetch });
+    expect(fetched).toEqual(["https://pawsgrooming.example", "https://www.pawsgrooming.example/pricing"]);
+  });
   it("fetches home plus interesting same-origin pages only", async () => {
     const { faux, gateway } = fauxGateway();
     const fetched: string[] = [];
@@ -113,6 +127,11 @@ describe("google", () => {
     const d = await importGoogleBusiness("x", { apiKey: undefined, fetch: (() => { throw new Error("should not fetch"); }) as never });
     expect(d.rawNotes?.[0]).toMatch(/GOOGLE_MAPS_API_KEY/);
   });
+  it("returns a note instead of throwing on network failure", async () => {
+    const d = await importGoogleBusiness("x", { apiKey: "k", fetch: (async () => { throw new Error("ECONNRESET"); }) as never });
+    expect(d.rawNotes?.[0]).toMatch(/request failed: ECONNRESET/);
+    expect(d.partial).toEqual({});
+  });
   it("maps a places response", async () => {
     const fakeFetch = (async () => new Response(JSON.stringify({ places: [{ id: "p1", displayName: { text: "Fluffy Paws" }, formattedAddress: "12 King St", nationalPhoneNumber: "02 9555 1234", websiteUri: "https://fluffypaws.example", regularOpeningHours: { periods: [{ open: { day: 1, hour: 9, minute: 0 }, close: { day: 1, hour: 17, minute: 0 } }] } }] }), { status: 200 })) as unknown as typeof fetch;
     const d = await importGoogleBusiness("Fluffy Paws", { apiKey: "k", fetch: fakeFetch });
@@ -143,5 +162,23 @@ describe("mergeDrafts", () => {
     expect(m.partial.services?.[0]?.prices).toHaveLength(3);
     expect(m.partial.sizeTiers).toHaveLength(3);
     expect(m.confidence.services).toBe(0.6);
+  });
+  it("merges services per id/name so services only one source lists survive", () => {
+    const svc = (id: string, en: string, prices: Array<{ size: string; min: number; max: number }>) => ({ id, name: { en, zh: en }, durationMin: 60, prices });
+    const merged = mergeServices(
+      [svc("full-groom", "Full Groom", [{ size: "all", min: 120, max: 120 }]), svc("wash-and-tidy", "Wash & Tidy", [{ size: "all", min: 90, max: 90 }]), svc("nail-trim", "Nail trim", [{ size: "all", min: 20, max: 20 }])],
+      [svc("full-grooming", "Full Grooming", [{ size: "s", min: 120, max: 120 }, { size: "m", min: 150, max: 150 }]), svc("wash-tidy", "Wash and Tidy", [{ size: "s", min: 90, max: 90 }, { size: "m", min: 115, max: 115 }])],
+    );
+    expect(merged.map((s) => s.id)).toEqual(["full-grooming", "wash-tidy", "nail-trim"]);
+    expect(merged[0]?.prices).toHaveLength(2);
+  });
+  it("keeps operator-provided base values over scraped ones", () => {
+    const m = mergeDrafts([{ source: { type: "website", fetchedAt: "" }, partial: { name: "Home | Fenny and Jacks" }, confidence: { name: 0.5 } }], { slug: "x", name: "Fenny & Jacks" });
+    expect(m.partial.name).toBe("Fenny & Jacks");
+  });
+  it("does not satisfy policies with an empty disclaimer", () => {
+    const d = verifyDraft({ notes: { en: "No cats", zh: "不接猫" }, unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "No cats" });
+    expect(d.partial.policies?.quoteDisclaimer.en.length).toBeGreaterThan(0);
+    expect(d.confidence.policies).toBe(0.5);
   });
 });

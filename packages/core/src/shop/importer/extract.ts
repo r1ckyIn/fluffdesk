@@ -47,6 +47,12 @@ export interface ExtractInput {
 }
 
 const MAX_ATTEMPTS = 3;
+const MAX_OUTPUT_TOKENS = 12_000;
+
+export const DEFAULT_QUOTE_DISCLAIMER = {
+  en: "Final price is assessed in store based on size, coat condition and behaviour.",
+  zh: "最终价格以到店评估体型、毛况和配合程度为准。",
+};
 const WEEKDAYS: Weekday[] = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
 
 const SYSTEM = `You extract a pet grooming salon's public profile into a structured draft for a booking assistant.
@@ -71,10 +77,15 @@ export async function extractShopDraft(gateway: Gateway, input: ExtractInput): P
   const notes: string[] = [];
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const res = await gateway.complete("chat", context, { maxTokens: 4000, reasoning: "low" });
+    const res = await gateway.complete("chat", context, { maxTokens: MAX_OUTPUT_TOKENS, reasoning: "low" });
     if (res.stopReason === "error") {
       notes.push(`attempt ${attempt}: model error ${res.errorMessage ?? ""}`);
       continue;
+    }
+    if (res.stopReason === "length") {
+      // 输出被截断，原样重试没有意义，直接放弃并说明原因
+      notes.push(`attempt ${attempt}: output truncated at ${MAX_OUTPUT_TOKENS} tokens; source too large, split it`);
+      break;
     }
     messages.push(res);
     const call = res.content.find((b): b is ToolCall => b.type === "toolCall" && b.name === submitDraftTool.name);
@@ -109,11 +120,18 @@ export function verifyDraft(draft: Draft, input: ExtractInput, notes: string[] =
     const stated = Object.keys(draft.hours) as Weekday[];
     const missing = WEEKDAYS.filter((d) => !stated.includes(d));
     partial.hours = Object.fromEntries(WEEKDAYS.map((d) => [d, draft.hours?.[d] ?? null])) as ShopConfig["hours"];
-    if (missing.length) notes.push(`hours not stated for ${missing.join(",")}, set to closed`);
-    confidence.hours = haystack ? hoursConfidence(haystack, draft.hours) : 0.6;
+    if (missing.length) notes.push(`hours not stated for ${missing.join(",")}, set to closed; confirm with the shop`);
+    // 没说的天算不确定：置信度按"说了几天"打折，部分抽取不能得满分
+    const verified = haystack ? hoursConfidence(haystack, draft.hours) : 0.6;
+    confidence.hours = Math.min(verified, stated.length / WEEKDAYS.length);
   }
   if (draft.sizeTiers) { partial.sizeTiers = draft.sizeTiers; confidence.sizeTiers = 0.7; }
-  if (draft.notes) partial.policies = { quoteDisclaimer: { en: "", zh: "" }, notes: draft.notes };
+  if (draft.notes) {
+    // 免责声明永远不能为空：先放默认文案，标低置信度让美容师确认
+    partial.policies = { quoteDisclaimer: DEFAULT_QUOTE_DISCLAIMER, notes: draft.notes };
+    confidence.policies = 0.5;
+    notes.push("policies.quoteDisclaimer is the default text, confirm with the shop");
+  }
 
   if (draft.services) {
     let verified = 0;

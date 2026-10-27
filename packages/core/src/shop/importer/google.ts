@@ -30,7 +30,9 @@ export async function importGoogleBusiness(query: string, opts: GoogleImportOpti
   const source = { type: "google" as const, fetchedAt };
   if (!apiKey) return { source, partial: {}, confidence: {}, rawNotes: ["GOOGLE_MAPS_API_KEY not set"] };
 
-  const res = await fetchImpl("https://places.googleapis.com/v1/places:searchText", {
+  let res: Response;
+  try {
+    res = await fetchImpl("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -39,9 +41,18 @@ export async function importGoogleBusiness(query: string, opts: GoogleImportOpti
     },
     body: JSON.stringify({ textQuery: query, regionCode: "AU", languageCode: "en", maxResultCount: 3 }),
     signal: AbortSignal.timeout(15_000),
-  });
+    });
+  } catch (e) {
+    // 网络错误或超时不能拖垮其他来源，记一笔返回空草稿
+    return { source, partial: {}, confidence: {}, rawNotes: [`places api request failed: ${(e as Error).message}`] };
+  }
   if (!res.ok) return { source, partial: {}, confidence: {}, rawNotes: [`places api ${res.status}: ${(await res.text()).slice(0, 200)}`] };
-  const data = (await res.json()) as PlacesResponse;
+  let data: PlacesResponse;
+  try {
+    data = (await res.json()) as PlacesResponse;
+  } catch (e) {
+    return { source, partial: {}, confidence: {}, rawNotes: [`places api returned invalid json: ${(e as Error).message}`] };
+  }
   const place = data.places?.[0];
   if (!place) return { source, partial: {}, confidence: {}, rawNotes: [`no place found for "${query}"`] };
 
