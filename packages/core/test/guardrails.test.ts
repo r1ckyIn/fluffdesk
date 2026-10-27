@@ -47,9 +47,18 @@ describe("写操作必须等美容师确认", () => {
     const store = c.bookings as InMemoryBookingStore;
     const [b] = await store.listPending(demoShop.slug);
     expect(b?.status).toBe("pending");
+    // 挂的必须是客人要的那个服务，时长跟着服务走
+    expect(b?.serviceId).toBe("bath-tidy");
+    expect(b?.durationMin).toBe(60);
     // 即使有人把 status 塞进 createPending 的入参，也会被覆盖成 pending
     const forced = await store.createPending({ ...(b as never), status: "confirmed" } as never);
     expect(forced.status).toBe("pending");
+  });
+  it("hold_booking rejects an unknown service instead of booking something else", async () => {
+    const c = ctx();
+    const r = await holdBookingTool.run({ customerName: "A", contact: "0400", serviceId: "spa-day", start: "2026-11-03T10:00", pet: { species: "dog" } }, c);
+    expect(r.isError).toBe(true);
+    expect(await (c.bookings as InMemoryBookingStore).listPending(demoShop.slug)).toHaveLength(0);
   });
   it("only decide() moves a booking out of pending, and only once", async () => {
     const store = new InMemoryBookingStore();
