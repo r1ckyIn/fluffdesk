@@ -18,6 +18,7 @@ MUTATIONS=(
   'packages/core/src/tools/hold_booking.ts@@s/>= LIMITS.pendingBookingsPerConversation/>= Infinity/@@一个会话可以无限挂预约'
   'packages/core/src/agent/loop.ts@@s/if (conv.messages.length >= LIMITS.messagesPerConversation) {/if (false) {/@@会话没有消息上限'
   'apps/api/src/routes/webhooks.ts@@s/if (!expected || !provided) return false;/if (!provided) return false;/@@webhook 没配 token 时放行'
+  'packages/core/src/shop/importer/safe-fetch.ts@@s/\["::ffff:0:0", 96\], //@@抓取放过 IPv4 映射的 IPv6 地址'
 )
 
 files=()

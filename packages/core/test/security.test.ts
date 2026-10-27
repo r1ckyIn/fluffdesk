@@ -22,12 +22,29 @@ const html = (body: string) => new Response(body, { status: 200, headers: { "con
 const publicLookup = async () => ["93.184.216.34"];
 
 describe("safeFetchHtml 防 SSRF", () => {
-  it.each(["10.0.0.1", "172.16.5.5", "192.168.1.1", "127.0.0.1", "169.254.169.254", "100.64.0.1", "::1", "fd00::1", "fe80::1", "::ffff:10.0.0.1"])("%s is private", (ip) => {
+  it.each([
+    "10.0.0.1", "172.16.5.5", "192.168.1.1", "127.0.0.1", "169.254.169.254", "100.64.0.1",
+    "::1", "::", "fd00::1", "fe80::1", "fec0::1",
+    // 内嵌 IPv4 的各种写法：映射（点分和十六进制）、兼容、NAT64。new URL() 会把点分写法序列化成十六进制
+    "::ffff:10.0.0.1", "::ffff:7f00:1", "::ffff:a9fe:a9fe", "::ffff:a00:1", "::7f00:1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe",
+  ])("%s is private", (ip) => {
     expect(isPrivateAddress(ip)).toBe(true);
   });
   it.each(["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"])("%s is public", (ip) => {
     expect(isPrivateAddress(ip)).toBe(false);
   });
+  it.each(["http://[::ffff:127.0.0.1]:8787/", "http://[::ffff:169.254.169.254]/latest/meta-data/", "http://[::ffff:a00:1]/", "http://[64:ff9b::10.0.0.1]/"])(
+    "rejects a redirect to %s after the url parser rewrites it",
+    async (target) => {
+      const seen: string[] = [];
+      const fetchImpl = (async (url: string) => {
+        seen.push(url);
+        return url.startsWith("http://good.example") ? new Response(null, { status: 302, headers: { location: target } }) : html("<p>internal</p>");
+      }) as unknown as typeof fetch;
+      await expect(safeFetchHtml("http://good.example/", { fetch: fetchImpl, lookup: publicLookup })).rejects.toThrow(/private address/);
+      expect(seen).toEqual(["http://good.example/"]);
+    },
+  );
   it("rejects hosts that resolve to private addresses without fetching", async () => {
     let fetched = false;
     const fetchImpl = (async () => { fetched = true; return html(""); }) as unknown as typeof fetch;

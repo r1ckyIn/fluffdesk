@@ -1,5 +1,5 @@
 import { lookup as dnsLookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
 
 /**
  * 给导入器用的抓取：只许 http(s)，解析出来的地址不能是内网、回环、链路本地，
@@ -27,30 +27,25 @@ export class UnsafeUrlError extends Error {
   }
 }
 
-export function isPrivateAddress(ip: string): boolean {
-  const v = isIP(ip);
-  if (v === 4) return isPrivateV4(ip);
-  if (v === 6) {
-    const lower = ip.toLowerCase();
-    if (lower === "::1" || lower === "::") return true;
-    // IPv4 映射地址 ::ffff:a.b.c.d
-    const mapped = lower.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateV4(mapped[1]!);
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // fc00::/7 唯一本地
-    if (/^fe[89ab]/.test(lower)) return true; // fe80::/10 链路本地
-    return false;
-  }
-  return true; // 不是合法 IP 一律当不安全
+/**
+ * 不许抓的地址段。内嵌 IPv4 的 IPv6 形式（映射 ::ffff:0:0/96、兼容 ::/96、NAT64 64:ff9b::/96）整段拒掉：
+ * 正经网站不会用这种字面量，而 new URL() 会把 ::ffff:127.0.0.1 序列化成 ::ffff:7f00:1，按正则拆内嵌地址很容易漏。
+ */
+const BLOCKED_V4 = new BlockList();
+for (const [addr, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0", 10], ["127.0.0.0", 8], ["169.254.0.0", 16], ["172.16.0.0", 12], ["192.168.0.0", 16]] as const) {
+  BLOCKED_V4.addSubnet(addr, prefix, "ipv4");
+}
+// 两张表分开：BlockList 查 IPv4 时会把它当映射地址去比 ::ffff:0:0/96，混在一张表里公网 v4 会全被拦
+const BLOCKED_V6 = new BlockList();
+for (const [addr, prefix] of [["::", 96], ["::ffff:0:0", 96], ["64:ff9b::", 96], ["64:ff9b:1::", 48], ["fc00::", 7], ["fe80::", 10], ["fec0::", 10]] as const) {
+  BLOCKED_V6.addSubnet(addr, prefix, "ipv6");
 }
 
-function isPrivateV4(ip: string): boolean {
-  const [a, b] = ip.split(".").map(Number) as [number, number];
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-  return false;
+export function isPrivateAddress(ip: string): boolean {
+  const v = isIP(ip);
+  if (v === 4) return BLOCKED_V4.check(ip, "ipv4");
+  if (v === 6) return BLOCKED_V6.check(ip, "ipv6");
+  return true; // 不是合法 IP 一律当不安全
 }
 
 async function assertSafeUrl(raw: string, lookup: NonNullable<SafeFetchOptions["lookup"]>): Promise<URL> {
