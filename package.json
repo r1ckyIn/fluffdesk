@@ -1,0 +1,19 @@
+{
+  "name": "fluffdesk",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "typecheck": "tsc -b packages/core packages/db packages/eval apps/api",
+    "test": "vitest run",
+    "dev:api": "npm run dev -w apps/api",
+    "dev:web": "npm run dev -w apps/web",
+    "eval": "npm run eval -w packages/eval --"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.8",
+    "@types/node": "^24.9.1"
+  }
+}

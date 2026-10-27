@@ -1,0 +1,15 @@
+{
+  "name": "@fluffdesk/eval",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -b",
+    "eval": "tsx src/run.ts"
+  },
+  "dependencies": {
+    "@fluffdesk/core": "*",
+    "@earendil-works/pi-ai": "^1.4.0"
+  },
+  "devDependencies": { "tsx": "^4.20.6" }
+}

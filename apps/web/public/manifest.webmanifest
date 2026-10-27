@@ -1,0 +1,9 @@
+{
+  "name": "fluffdesk groomer",
+  "short_name": "fluffdesk",
+  "start_url": "/groomer",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#111827",
+  "icons": []
+}
