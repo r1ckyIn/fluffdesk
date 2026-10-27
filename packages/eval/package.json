@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b",
-    "eval": "tsx src/run.ts"
+    "eval": "tsx --env-file-if-exists=../../.env src/run.ts"
   },
   "dependencies": {
     "@fluffdesk/core": "*",

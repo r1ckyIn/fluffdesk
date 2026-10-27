@@ -39,7 +39,7 @@ if (dry) {
 }
 
 const gateway = createGateway();
-const summary: Array<{ id: string; pass: boolean; checks: ReturnType<typeof gradeDeterministic>; costUsd: number }> = [];
+const summary: Array<{ id: string; pass: boolean; checks: ReturnType<typeof gradeDeterministic>; costUsd: number; replies: string[]; toolCalls: unknown[] }> = [];
 
 for (const c of cases) {
   const shop = shops[c.shop]!;
@@ -57,7 +57,7 @@ for (const c of cases) {
   const checks = gradeDeterministic(shop, c.locale, results, c.expect);
   const pass = checks.every((k) => k.pass);
   const costUsd = results.reduce((s, r) => s + r.costUsd, 0);
-  summary.push({ id: c.id, pass, checks, costUsd });
+  summary.push({ id: c.id, pass, checks, costUsd, replies: results.map((r) => r.reply), toolCalls: results.flatMap((r) => r.toolCalls.map((t) => ({ name: t.name, args: t.args, isError: t.isError }))) });
   console.log(`${pass ? "PASS" : "FAIL"} ${c.id}  $${costUsd.toFixed(4)}`);
   for (const k of checks) if (!k.pass) console.log(`     x ${k.name}${k.detail ? `: ${k.detail}` : ""}`);
 }
