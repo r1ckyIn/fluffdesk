@@ -1,6 +1,7 @@
 export * from "./shop/schema.js";
 export * from "./shop/importer/index.js";
 export * from "./llm/gateway.js";
+export * from "./llm/replay.js";
 export * from "./agent/loop.js";
 export * from "./agent/prompt.js";
 export * from "./tools/registry.js";

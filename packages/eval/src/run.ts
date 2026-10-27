@@ -1,72 +1,62 @@
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createGateway, defaultTools, newConversation, runTurn, InMemoryBookingStore, InMemoryCalendar, parseShopConfig, type ShopConfig } from "@fluffdesk/core";
-import { gradeDeterministic, type Expectation } from "./graders/deterministic.js";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { createGateway } from "@fluffdesk/core";
+import { EVAL_ROOT, loadDataset, loadShops, runCase, type CaseResult, type Mode } from "./runner.js";
 
 /**
- * 用法：npm run eval -- quote            跑 datasets/quote.jsonl，用真模型（花钱，读 .env）
- *       npm run eval -- quote --dry      只校验数据集格式，不调模型
+ * 用法：
+ *   npm run eval -- quote                 真模型跑一遍（花钱，读 .env）
+ *   npm run eval -- quote --record        真模型跑并录制到 recordings/quote/<id>.json
+ *   npm run eval -- quote --replay        按录制回放，不花钱，CI 用；请求对不上录制就失败
+ *   npm run eval -- quote --runs 3        每条跑 3 次，全过才算过（pass^k）
+ *   npm run eval -- quote --only book-001 只跑（或只重录）指定用例，逗号分隔
+ *   npm run eval -- quote --dry           只校验数据集格式
  * 结果写到 runs/<dataset>-<时间>.json，拿来和上一次比。
  */
-interface Case {
-  id: string;
-  source: string;
-  shop: string;
-  locale: "en" | "zh";
-  turns: Array<{ text?: string; images?: Array<{ path: string; mimeType: string }> }>;
-  expect: Expectation;
-  judge?: string;
-}
-
-const here = dirname(fileURLToPath(import.meta.url));
-const name = process.argv[2];
-const dry = process.argv.includes("--dry");
+const argv = process.argv.slice(2);
+const name = argv.find((a) => !a.startsWith("--"));
+const flag = (f: string) => argv.includes(f);
+const runsArg = argv.indexOf("--runs");
+const runs = runsArg >= 0 ? Number(argv[runsArg + 1] ?? "1") : 1;
+const onlyArg = argv.indexOf("--only");
+const only = onlyArg >= 0 ? new Set((argv[onlyArg + 1] ?? "").split(",")) : undefined;
 if (!name) {
-  console.error("usage: npm run eval -- <dataset> [--dry]");
+  console.error("usage: npm run eval -- <dataset> [--record|--replay] [--runs k] [--dry]");
   process.exit(2);
 }
 
-const cases: Case[] = readFileSync(resolve(here, "../datasets", `${name}.jsonl`), "utf8")
-  .split("\n").filter(Boolean).map((l) => JSON.parse(l));
-const shops: Record<string, ShopConfig> = JSON.parse(readFileSync(resolve(here, "../datasets/shops.json"), "utf8"));
-for (const k of Object.keys(shops)) shops[k] = parseShopConfig(shops[k]);
-
-if (dry) {
+const cases = loadDataset(name).filter((c) => !only || only.has(c.id));
+const shops = loadShops();
+if (flag("--dry")) {
   for (const c of cases) if (!shops[c.shop]) throw new Error(`${c.id}: unknown shop ${c.shop}`);
   console.log(`${cases.length} cases ok`);
   process.exit(0);
 }
 
-const gateway = createGateway();
-const summary: Array<{ id: string; pass: boolean; checks: ReturnType<typeof gradeDeterministic>; costUsd: number; replies: string[]; toolCalls: unknown[] }> = [];
+const mode: Mode = flag("--replay") ? { kind: "replay", dataset: name } : { kind: "live", record: flag("--record") ? name : undefined };
+const live = mode.kind === "live" ? createGateway() : undefined;
+const summary: Array<CaseResult & { runs: number; passedRuns: number }> = [];
 
 for (const c of cases) {
-  const shop = shops[c.shop]!;
-  const deps = {
-    gateway, shop, tools: defaultTools(),
-    toolContext: { bookings: new InMemoryBookingStore(), calendar: new InMemoryCalendar(() => ({ open: "09:00", close: "17:00" })) },
-    today: () => "2026-11-01",
-  };
-  const conv = newConversation({ id: `eval-${c.id}`, shopSlug: shop.slug, channel: "eval", locale: c.locale });
-  const results = [];
-  for (const t of c.turns) {
-    const images = (t.images ?? []).map((i) => ({ data: readFileSync(resolve(here, "../datasets", i.path)).toString("base64"), mimeType: i.mimeType }));
-    results.push(await runTurn(deps, conv, { text: t.text, images }));
+  let last: CaseResult | undefined;
+  let passedRuns = 0;
+  let cost = 0;
+  for (let i = 0; i < runs; i++) {
+    last = await runCase(c, shops, mode, live);
+    cost += last.costUsd;
+    if (last.pass) passedRuns++;
   }
-  const checks = gradeDeterministic(shop, c.locale, results, c.expect);
-  const pass = checks.every((k) => k.pass);
-  const costUsd = results.reduce((s, r) => s + r.costUsd, 0);
-  summary.push({ id: c.id, pass, checks, costUsd, replies: results.map((r) => r.reply), toolCalls: results.flatMap((r) => r.toolCalls.map((t) => ({ name: t.name, args: t.args, isError: t.isError }))) });
-  console.log(`${pass ? "PASS" : "FAIL"} ${c.id}  $${costUsd.toFixed(4)}`);
-  for (const k of checks) if (!k.pass) console.log(`     x ${k.name}${k.detail ? `: ${k.detail}` : ""}`);
+  const pass = passedRuns === runs;
+  summary.push({ ...last!, pass, costUsd: cost, runs, passedRuns });
+  console.log(`${pass ? "PASS" : "FAIL"} ${c.id}${runs > 1 ? `  ${passedRuns}/${runs}` : ""}  $${cost.toFixed(4)}`);
+  if (!pass) for (const k of last!.checks) if (!k.pass) console.log(`     x ${k.name}${k.detail ? `: ${k.detail}` : ""}`);
 }
 
 const passed = summary.filter((s) => s.pass).length;
 const cost = summary.reduce((s, r) => s + r.costUsd, 0);
-console.log(`\n${passed}/${summary.length} passed, cost $${cost.toFixed(4)}`);
-mkdirSync(resolve(here, "../runs"), { recursive: true });
-const out = resolve(here, "../runs", `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-writeFileSync(out, JSON.stringify({ dataset: name, passed, total: summary.length, cost, cases: summary }, null, 2));
+console.log(`\n${passed}/${summary.length} passed${runs > 1 ? ` (pass^${runs})` : ""}, cost $${cost.toFixed(4)}${mode.kind === "replay" ? " (replay)" : ""}`);
+mkdirSync(resolve(EVAL_ROOT, "runs"), { recursive: true });
+const out = resolve(EVAL_ROOT, "runs", `${name}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
+writeFileSync(out, JSON.stringify({ dataset: name, mode: mode.kind, runs, passed, total: summary.length, cost, cases: summary }, null, 2));
 console.log(`wrote ${out}`);
 process.exit(passed === summary.length ? 0 : 1);

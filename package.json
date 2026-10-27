@@ -15,7 +15,8 @@
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
     "eval": "npm run eval -w packages/eval --",
-    "import": "tsx --env-file-if-exists=.env apps/api/src/cli/import.ts"
+    "import": "tsx --env-file-if-exists=.env apps/api/src/cli/import.ts",
+    "test:mutate": "bash scripts/mutate.sh"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

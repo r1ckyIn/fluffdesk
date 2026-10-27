@@ -21,8 +21,15 @@ npm run typecheck
 npm test                 # 离线，用 faux provider，不花钱
 npm run dev:api          # http://localhost:8787/health
 npm run dev:web          # http://localhost:3000
-npm run eval -- quote    # 跑一个测试集
+npm run eval -- quote    # 真模型跑 eval（花钱）
+npm run eval -- quote --replay   # 按录制回放，不花钱，CI 用
+npm run eval -- quote --record   # 改了提示词或工具后重新录制
+npm run eval -- quote --runs 3   # pass^3
+npm run test:mutate      # 变异测试，看护栏在不在
+npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --screenshots imports/fenny-and-jacks
 ```
+
+测试分四层（单元、契约、录制回放 e2e、eval），为什么这么分见 `docs/adr/0001-testing-strategy.md`。
 
 ## TODO
 
@@ -32,11 +39,17 @@ npm run eval -- quote    # 跑一个测试集
 - [x] 抽取器：strict tool use + 本地校验 + 原文核对，三次重试
 - [x] 官网 / Google 商家 / Instagram 截图三路导入，按信息量合并
 - [x] 第一家真实店铺（Fenny & Jacks）导入通过，分档价目和店家预约页一致
-- [ ] 改抽取或合并逻辑后，用 Fenny & Jacks 重跑一遍当回归（七个服务、六档价目、营业时间周一到周六）
 - [ ] 预约页来源：Timely、Fresha 这类公开预约页，信息比官网准
 - [ ] 服务时长：来源没写时别用 60 分钟占位，标成缺失让人填
 - [ ] policies 抽取：取消政策、不接的品种、打结加价这些进 notes
 - [ ] 草稿确认流：美容师端看草稿、改字段、点确认后进 shops 表
+
+### 测试与 eval
+- [x] 契约测试守 CLAUDE.md 规矩；变异脚本 9 条；CI 门禁
+- [x] 录制回放：eval 集 24 条用真模型录制，CI 回放
+- [ ] eval 集加真实客人案例（老板导出私信后）；一直全绿的用例降频
+- [ ] 模型评审和人工打分对齐（75% 以上），再启用 judge
+- [ ] 改抽取或合并逻辑后，用 Fenny & Jacks 重跑当回归（七个服务、六档价目、营业时间周一到周六）
 
 ### agent 核心
 - [x] 自写循环、四个工具、pending 预约、轨迹
@@ -56,8 +69,8 @@ npm run eval -- quote    # 跑一个测试集
 - [ ] 修正识图和报价
 - [ ] Web Push 通知，邮件兜底
 
-### 数据与部署
-- [ ] runtime.ts 从内存实现换成 @fluffdesk/db（Neon 悉尼区），跑一次 migration
+### 数据与部署（下一个 session）
+- [ ] runtime.ts 从内存实现换成 @fluffdesk/db（Neon 悉尼区已建好，`npm run db:check -w packages/db` 能连上），跑一次 migration
 - [ ] 对话、预约、轨迹、修正落库
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比

@@ -4,7 +4,7 @@ import { createGateway } from "../src/llm/gateway.js";
 import { extractShopDraft, verifyDraft, type Draft } from "../src/shop/importer/extract.js";
 import { importWebsite } from "../src/shop/importer/website.js";
 import { importGoogleBusiness, mapHours } from "../src/shop/importer/google.js";
-import { mergeDrafts, mergeServices } from "../src/shop/importer/index.js";
+import { mergeDrafts, mergeServices, LOW_CONFIDENCE } from "../src/shop/importer/index.js";
 import { htmlToText, extractLinks } from "../src/shop/importer/html.js";
 
 function fauxGateway() {
@@ -40,9 +40,10 @@ describe("verifyDraft", () => {
     const text = htmlToText(SITE_HTML) + "\n" + htmlToText(PRICING_HTML);
     const d = verifyDraft(goodDraft, { source: { type: "website", fetchedAt: "" }, text });
     expect(d.partial.services?.map((s) => s.id)).toEqual(["full-groom"]);
-    expect(d.confidence.services).toBe(0.5);
+    expect(d.confidence.services).toBeLessThan(LOW_CONFIDENCE);
     expect(d.confidence.phone).toBe(1);
-    expect(d.confidence.hours).toBeCloseTo(2 / 7);
+    // 只说了两天，必须低于标红线，不锁具体数值
+    expect(d.confidence.hours).toBeLessThan(LOW_CONFIDENCE);
     expect(d.rawNotes?.some((n) => n.includes("nail-trim"))).toBe(true);
   });
 });
@@ -64,7 +65,7 @@ describe("verifyDraft price evidence", () => {
   it("flags missing durations instead of silently defaulting", () => {
     const d = verifyDraft({ services: [{ id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "all", min: 120, max: 120 }], evidence: "Full groom $120" }], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "Full groom $120" });
     expect(d.partial.services?.[0]?.durationMin).toBe(60);
-    expect(d.confidence.services).toBe(0.7);
+    expect(d.confidence.services).toBeLessThan(LOW_CONFIDENCE);
     expect(d.rawNotes?.some((n) => n.includes("duration not stated"))).toBe(true);
   });
 });
@@ -154,6 +155,19 @@ describe("importWebsite", () => {
   });
 });
 
+describe("importWebsite boundaries", () => {
+  it.each([
+    ["network error", async () => { throw new Error("ETIMEDOUT"); }],
+    ["404", async () => new Response("nope", { status: 404, headers: { "content-type": "text/html" } })],
+    ["non-html", async () => new Response("%PDF-1.4", { status: 200, headers: { "content-type": "application/pdf" } })],
+  ])("returns an empty draft with a note on %s instead of throwing", async (_label, impl) => {
+    const { gateway } = fauxGateway();
+    const d = await importWebsite(gateway, "https://down.example", { fetch: impl as unknown as typeof fetch });
+    expect(d.partial).toEqual({});
+    expect(d.rawNotes?.[0]).toMatch(/could not fetch/);
+  });
+});
+
 describe("html helpers", () => {
   it("strips tags and keeps text lines", () => {
     const t = htmlToText(SITE_HTML);
@@ -198,7 +212,7 @@ describe("google", () => {
     const d = await importGoogleBusiness("Fluffy Paws", { apiKey: "k", fetch: fakeFetch });
     expect(d.partial).toMatchObject({ name: "Fluffy Paws", phone: "02 9555 1234", website: "https://fluffypaws.example" });
     expect(d.partial.hours?.mon).toEqual({ open: "09:00", close: "17:00" });
-    expect(d.confidence.hours).toBe(0.9);
+    expect(d.confidence.hours).toBeGreaterThanOrEqual(LOW_CONFIDENCE);
   });
 });
 

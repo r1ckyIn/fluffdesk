@@ -19,5 +19,12 @@
 - 每次对话有完整轨迹：每步模型调用、工具调用、耗时、成本，属性名按 OpenTelemetry GenAI 约定
 - v1 不碰支付；客人数据存悉尼区；密钥不进仓库
 
+## 测试纪律（细节和理由见 docs/adr/0001-testing-strategy.md）
+- 改任何代码：`npm test` 必过；改了核心逻辑再跑 `npm run test:mutate`，逃掉一条就不算完
+- 改抽取或合并逻辑：用 Fenny & Jacks 重跑 `npm run import` 当回归
+- 改提示词、工具定义或换模型：`npm run eval -- quote --record` 重新录制，再 `--replay` 确认 CI 能过；回放指纹对不上就是要重录，不要改指纹
+- 新护栏规矩先写契约测试（`packages/core/test/guardrails.test.ts`），再写实现
+- 不写断言实现常数的测试，不 mock 被测对象，CI 里不调真模型
+
 ## 常用命令
-`npm run typecheck`、`npm test`（离线 faux 模型）、`npm run dev:api`、`npm run dev:web`、`npm run eval -- <dataset>`
+`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run dev:api`、`npm run dev:web`
