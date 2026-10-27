@@ -133,4 +133,15 @@ describe("mergeDrafts", () => {
     expect(m.missing).toEqual(["hours", "sizeTiers", "services", "policies"]);
     expect(m.sources).toHaveLength(2);
   });
+  it("prefers tiered price lists over from-prices even at lower confidence", () => {
+    const fromPrice = { id: "style-cut", name: { en: "Style cut", zh: "造型" }, durationMin: 60, prices: [{ size: "all", min: 140, max: 140 }] };
+    const tiered = { id: "style-cut", name: { en: "Style cut", zh: "造型" }, durationMin: 45, prices: [{ size: "xs", min: 140, max: 140 }, { size: "s", min: 155, max: 155 }, { size: "m", min: 170, max: 170 }] };
+    const m = mergeDrafts([
+      { source: { type: "website", fetchedAt: "" }, partial: { services: [fromPrice], sizeTiers: [{ id: "all", label: { en: "All", zh: "全部" } }] }, confidence: { services: 1, sizeTiers: 0.7 } },
+      { source: { type: "instagram", fetchedAt: "" }, partial: { services: [tiered], sizeTiers: [{ id: "xs", label: { en: "XS", zh: "超小" }, maxKg: 4 }, { id: "s", label: { en: "S", zh: "小" }, maxKg: 10 }, { id: "m", label: { en: "M", zh: "中" }, maxKg: 15 }] }, confidence: { services: 0.6, sizeTiers: 0.6 } },
+    ]);
+    expect(m.partial.services?.[0]?.prices).toHaveLength(3);
+    expect(m.partial.sizeTiers).toHaveLength(3);
+    expect(m.confidence.services).toBe(0.6);
+  });
 });

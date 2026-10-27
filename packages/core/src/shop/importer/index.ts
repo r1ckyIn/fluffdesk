@@ -26,17 +26,42 @@ export interface MergedDraft {
 
 const REQUIRED: Array<keyof ShopConfig> = ["slug", "name", "hours", "sizeTiers", "services", "policies"];
 
-/** 每个字段取置信度最高的来源；平手后来的赢。sources 和 notes 全保留 */
+/** 只有 services 和 sizeTiers 比信息量，其他字段一律 0，退回比置信度 */
+export function richnessOf(key: keyof ShopConfig, value: unknown): number {
+  if (key === "services" && Array.isArray(value)) {
+    const services = value as ShopConfig["services"];
+    const sizes = new Set(services.flatMap((s) => s.prices.map((p) => p.size)));
+    const ranged = services.flatMap((s) => s.prices).filter((p) => p.max > p.min).length;
+    return sizes.size * 10 + ranged + services.length * 0.1;
+  }
+  if (key === "sizeTiers" && Array.isArray(value)) {
+    const tiers = value as ShopConfig["sizeTiers"];
+    return tiers.length * 10 + tiers.filter((t) => t.maxKg !== undefined).length;
+  }
+  return 0;
+}
+
+/**
+ * 合并规则：
+ * - services / sizeTiers 先比"信息量"：按体型分档、有区间的价目表胜过一个起步价。
+ *   官网常常只写 from $140，Instagram 价目帖反而是完整的分档表，不能让置信度把它压掉
+ * - 其他字段取置信度最高的来源；平手后来的赢
+ * sources 和 notes 全保留
+ */
 export function mergeDrafts(drafts: ShopDraft[], base: Partial<ShopConfig> = {}): MergedDraft {
   const partial: Partial<ShopConfig> = { ...base };
   const confidence: ShopDraft["confidence"] = {};
+  const richness: Partial<Record<keyof ShopConfig, number>> = {};
   const notes: string[] = [];
   for (const d of drafts) {
     for (const key of Object.keys(d.partial) as Array<keyof ShopConfig>) {
       const c = d.confidence[key] ?? 0.5;
-      if (partial[key] === undefined || c >= (confidence[key] ?? -1)) {
+      const r = richnessOf(key, d.partial[key]);
+      const better = partial[key] === undefined || r > (richness[key] ?? -1) || (r === (richness[key] ?? -1) && c >= (confidence[key] ?? -1));
+      if (better) {
         (partial as Record<string, unknown>)[key] = d.partial[key];
         confidence[key] = c;
+        richness[key] = r;
       }
     }
     for (const n of d.rawNotes ?? []) notes.push(`[${d.source.type}] ${n}`);

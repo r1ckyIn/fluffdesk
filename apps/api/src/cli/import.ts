@@ -11,6 +11,8 @@ import { createGateway, importGoogleBusiness, importScreenshots, importWebsite, 
  * 输出 packages/eval/datasets/shops/<slug>.draft.json，低置信度字段和缺失字段打印出来。
  * 草稿不是正式配置：美容师在后台确认后才会进 shops 表。
  */
+/** npm run 会把 cwd 切到 apps/api，相对路径按用户敲命令的目录算 */
+const BASE = process.env.INIT_CWD ?? process.cwd();
 const args = parseArgs(process.argv.slice(2));
 const slug = args.slug;
 if (!slug || (!args.website && !args.google && !args.screenshots)) {
@@ -30,7 +32,7 @@ if (args.website) {
   drafts.push(await importWebsite(gateway, args.website));
 }
 if (args.screenshots) {
-  const dir = resolve(args.screenshots);
+  const dir = resolve(BASE, args.screenshots);
   const files = readdirSync(dir).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)).sort();
   console.log(`screenshots: ${files.length} file(s) in ${dir}`);
   const images = files.map((f) => ({ data: readFileSync(join(dir, f)).toString("base64"), mimeType: mime(f) }));
@@ -38,10 +40,10 @@ if (args.screenshots) {
 }
 
 const merged = mergeDrafts(drafts, { slug, currency: "AUD", timezone: "Australia/Sydney", ...(args.name ? { name: args.name } : {}) });
-const outDir = resolve(args.out ?? "packages/eval/datasets/shops");
+const outDir = resolve(BASE, args.out ?? "packages/eval/datasets/shops");
 mkdirSync(outDir, { recursive: true });
 const outFile = join(outDir, `${slug}.draft.json`);
-writeFileSync(outFile, JSON.stringify({ ...merged, generatedAt: new Date().toISOString() }, null, 2));
+writeFileSync(outFile, JSON.stringify({ ...merged, drafts, generatedAt: new Date().toISOString() }, null, 2));
 
 console.log(`\nwrote ${outFile}`);
 console.log(`fields: ${Object.keys(merged.partial).join(", ")}`);
