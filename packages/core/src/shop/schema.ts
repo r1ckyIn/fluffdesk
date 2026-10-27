@@ -47,7 +47,10 @@ export const DayHours = Type.Union([
   Type.Object({ open: Type.String({ pattern: "^\\d{2}:\\d{2}$" }), close: Type.String({ pattern: "^\\d{2}:\\d{2}$" }) }),
 ]);
 
-export const Weekday = Type.Union(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => Type.Literal(d)));
+export const Weekday = Type.Union([
+  Type.Literal("mon"), Type.Literal("tue"), Type.Literal("wed"), Type.Literal("thu"),
+  Type.Literal("fri"), Type.Literal("sat"), Type.Literal("sun"),
+]);
 export type Weekday = Static<typeof Weekday>;
 
 /** 资料来源，导入器填，便于追溯和刷新 */
@@ -65,6 +68,7 @@ export const ShopConfig = Type.Object({
   currency: Type.Literal("AUD"),
   address: Type.Optional(Type.String()),
   phone: Type.Optional(Type.String()),
+  website: Type.Optional(Type.String()),
   hours: Type.Record(Weekday, DayHours),
   sizeTiers: Type.Array(SizeTier, { minItems: 1 }),
   services: Type.Array(Service, { minItems: 1 }),

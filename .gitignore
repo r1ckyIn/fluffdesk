@@ -7,3 +7,4 @@ dist/
 !.env.example
 .DS_Store
 packages/eval/runs/
+packages/eval/datasets/shops/*.draft.json

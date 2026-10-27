@@ -9,7 +9,8 @@
     "test": "vitest run",
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",
-    "eval": "npm run eval -w packages/eval --"
+    "eval": "npm run eval -w packages/eval --",
+    "import": "npm run import -w apps/api --"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
