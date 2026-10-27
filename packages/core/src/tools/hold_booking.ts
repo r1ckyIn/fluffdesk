@@ -3,6 +3,7 @@ import { defineTool } from "./registry.js";
 import { findService } from "../shop/schema.js";
 import { computeQuote } from "./quote.js";
 import type { CoatType } from "../shop/schema.js";
+import { LIMITS } from "../agent/limits.js";
 
 /**
  * 唯一的 propose 级工具：挂一个 pending 预约。
@@ -33,6 +34,11 @@ export const holdBookingTool = defineTool({
   async run(args, ctx) {
     const service = findService(ctx.shop, args.serviceId);
     if (!service) return { text: `unknown service ${args.serviceId}`, isError: true };
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(args.start)) return { text: "start must be YYYY-MM-DDTHH:MM", isError: true };
+    // 一个会话最多挂两个待确认，脚本刷预约会把老板的待办淹掉
+    if ((await ctx.bookings.countPendingForConversation(ctx.conversationId)) >= LIMITS.pendingBookingsPerConversation) {
+      return { text: "this conversation already has pending booking requests; ask the customer to wait for the groomer to confirm", isError: true };
+    }
     let quote: { min: number; max: number; currency: "AUD" } | undefined;
     if (args.pet.sizeTier) {
       try {

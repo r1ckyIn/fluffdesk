@@ -7,6 +7,9 @@ import { importGoogleBusiness, mapHours } from "../src/shop/importer/google.js";
 import { mergeDrafts, mergeServices, LOW_CONFIDENCE } from "../src/shop/importer/index.js";
 import { htmlToText, extractLinks } from "../src/shop/importer/html.js";
 
+/** 假 DNS：测试里的域名不存在，安全抓取要先解析再放行 */
+const publicLookup = async () => ["93.184.216.34"];
+
 function fauxGateway() {
   const faux = fauxProvider();
   const models = createModels();
@@ -113,14 +116,14 @@ describe("importWebsite", () => {
     const fetched: string[] = [];
     const fakeFetch = (async (url: string) => {
       fetched.push(url);
-      const finalUrl = url.replace("https://pawsgrooming.example", "https://www.pawsgrooming.example");
+      // 裸域 301 到 www，之后页面里的绝对链接都指向 www
+      if (url === "https://pawsgrooming.example/") return new Response(null, { status: 301, headers: { location: "https://www.pawsgrooming.example/" } });
       const html = url.includes("/pricing") ? PRICING_HTML : `<a href="https://www.pawsgrooming.example/gallery">g</a><a href="https://www.pawsgrooming.example/pricing">p</a>`;
-      // Response.url 是只读 getter，手工造一个带 url 的响应对象
-      return { ok: true, url: finalUrl, headers: new Headers({ "content-type": "text/html" }), text: async () => html } as unknown as Response;
+      return new Response(html, { status: 200, headers: { "content-type": "text/html" } });
     }) as unknown as typeof fetch;
     faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" })]);
-    await importWebsite(gateway, "https://pawsgrooming.example", { fetch: fakeFetch });
-    expect(fetched).toEqual(["https://pawsgrooming.example", "https://www.pawsgrooming.example/pricing"]);
+    await importWebsite(gateway, "https://pawsgrooming.example", { fetch: fakeFetch, lookup: publicLookup });
+    expect(fetched).toEqual(["https://pawsgrooming.example/", "https://www.pawsgrooming.example/", "https://www.pawsgrooming.example/pricing"]);
   });
   it("caps each page separately so a bloated homepage cannot crowd out the pricing page", async () => {
     const { faux, gateway } = fauxGateway();
@@ -135,7 +138,7 @@ describe("importWebsite", () => {
       seenText = first.content.map((c) => c.text ?? "").join("");
       return fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" });
     }]);
-    await importWebsite(gateway, "https://big.example", { fetch: fakeFetch, maxChars: 4000 });
+    await importWebsite(gateway, "https://big.example", { fetch: fakeFetch, lookup: publicLookup, maxChars: 4000 });
     expect(seenText).toContain("Full groom medium $120 - $160");
     expect(seenText).toContain("[truncated]");
   });
@@ -148,9 +151,9 @@ describe("importWebsite", () => {
       return new Response(body, { status: 200, headers: { "content-type": "text/html" } });
     }) as unknown as typeof fetch;
     faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_shop_draft", goodDraft)], { stopReason: "toolUse" })]);
-    const d = await importWebsite(gateway, "https://fluffypaws.example", { fetch: fakeFetch });
-    expect(fetched).toEqual(["https://fluffypaws.example", "https://fluffypaws.example/pricing"]);
-    expect(d.partial.website).toBe("https://fluffypaws.example");
+    const d = await importWebsite(gateway, "https://fluffypaws.example", { fetch: fakeFetch, lookup: publicLookup });
+    expect(fetched).toEqual(["https://fluffypaws.example/", "https://fluffypaws.example/pricing"]);
+    expect(d.partial.website).toBe("https://fluffypaws.example/");
     expect(d.partial.services?.[0]?.id).toBe("full-groom");
   });
 });
@@ -162,7 +165,7 @@ describe("importWebsite boundaries", () => {
     ["non-html", async () => new Response("%PDF-1.4", { status: 200, headers: { "content-type": "application/pdf" } })],
   ])("returns an empty draft with a note on %s instead of throwing", async (_label, impl) => {
     const { gateway } = fauxGateway();
-    const d = await importWebsite(gateway, "https://down.example", { fetch: impl as unknown as typeof fetch });
+    const d = await importWebsite(gateway, "https://down.example", { fetch: impl as unknown as typeof fetch, lookup: publicLookup });
     expect(d.partial).toEqual({});
     expect(d.rawNotes?.[0]).toMatch(/could not fetch/);
   });

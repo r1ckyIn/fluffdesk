@@ -18,6 +18,9 @@
 - 美容师对识图结果和报价的修正都要记下来，作为 eval 集（`packages/eval/datasets`）
 - 每次对话有完整轨迹：每步模型调用、工具调用、耗时、成本，属性名按 OpenTelemetry GenAI 约定
 - v1 不碰支付；客人数据存悉尼区；密钥不进仓库
+- 公网进来的东西都有上限（`packages/core/src/agent/limits.ts`）：图片数量和大小、会话长度、每会话待确认预约数、每 IP 和每会话请求频率
+- 美容师端接口过渡期用 `GROOMER_API_TOKEN` 做 Bearer 鉴权，没配就 503，正式方案是 magic link
+- 导入器抓任何 URL 都走 `safeFetchHtml`：只许 http(s)、拒内网地址、重定向逐跳校验、正文限 2MB
 
 ## 测试纪律（细节和理由见 docs/adr/0001-testing-strategy.md）
 - 改任何代码：`npm test` 必过；改了核心逻辑再跑 `npm run test:mutate`，逃掉一条就不算完
@@ -25,6 +28,9 @@
 - 改提示词、工具定义或换模型：`npm run eval -- quote --record` 重新录制，再 `--replay` 确认 CI 能过；回放指纹对不上就是要重录，不要改指纹
 - 新护栏规矩先写契约测试（`packages/core/test/guardrails.test.ts`），再写实现
 - 不写断言实现常数的测试，不 mock 被测对象，CI 里不调真模型
+
+## PR 流程
+开分支 → 提交 → `/test-review` → `/code-review` → `/security-review`（直到没有 high）→ 合并。三个审查都跑完才能合，漏了就在合并后的 diff 上补跑并开修复 PR。
 
 ## 常用命令
 `npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run dev:api`、`npm run dev:web`

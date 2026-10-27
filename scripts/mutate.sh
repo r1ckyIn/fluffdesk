@@ -14,6 +14,10 @@ MUTATIONS=(
   'packages/core/src/tools/quote.ts@@s/Disclaimer to include: "${disclaimer}"/Disclaimer: none/@@报价工具丢掉免责声明'
   'packages/core/src/tools/hold_booking.ts@@s/const service = findService(ctx.shop, args.serviceId);/const service = ctx.shop.services[0];/@@hold_booking 不校验服务 id'
   'packages/core/src/shop/importer/website.ts@@s/INTERESTING.test(new URL(l).pathname)/INTERESTING.test(l)/@@官网链接按整个 URL 匹配关键词'
+  'packages/core/src/shop/importer/safe-fetch.ts@@s/for (const ip of addresses) if (isPrivateAddress(ip))/for (const ip of addresses) if (false \&\& isPrivateAddress(ip))/@@抓取不拒绝内网地址'
+  'packages/core/src/tools/hold_booking.ts@@s/>= LIMITS.pendingBookingsPerConversation/>= Infinity/@@一个会话可以无限挂预约'
+  'packages/core/src/agent/loop.ts@@s/if (conv.messages.length >= LIMITS.messagesPerConversation) {/if (false) {/@@会话没有消息上限'
+  'apps/api/src/routes/webhooks.ts@@s/if (!expected || !provided) return false;/if (!provided) return false;/@@webhook 没配 token 时放行'
 )
 
 files=()

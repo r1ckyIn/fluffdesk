@@ -18,6 +18,11 @@ const BASE = process.env.INIT_CWD ?? process.cwd();
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
 const args = parseArgs(process.argv.slice(2));
 const slug = args.slug;
+// slug 进文件名，必须和 schema 的 pattern 一致，否则 --slug ../../x 能写到别处
+if (slug && !/^[a-z0-9-]+$/.test(slug)) {
+  console.error("slug must match ^[a-z0-9-]+$");
+  process.exit(2);
+}
 if (!slug || (!args.website && !args.google && !args.screenshots)) {
   console.error("usage: npm run import -- --slug <slug> [--name <name>] [--website <url>] [--google <query>] [--screenshots <dir>] [--out <dir>]");
   process.exit(2);
