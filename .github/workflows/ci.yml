@@ -17,6 +17,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: typecheck
         run: npm run typecheck
+      - name: design tokens in sync
+        run: npm run design:check
       - name: unit, contract and replay tests
         run: npm test
       - name: mutation check
