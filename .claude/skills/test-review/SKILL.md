@@ -27,7 +27,7 @@ base="$ARGUMENTS"; base="${base:-origin/main}"; echo "base: $base"; git diff --s
 
 ## 二、十条检查
 
-1. **新护栏有契约测试吗。** 改了规矩相关代码，`packages/core/test/guardrails.test.ts` 里要有对应用例，而且断言的是行为（工具返回的文本、预约的状态、注册表抛错），不是类型。反例：注册表的 write 拦截原来只在 TypeScript 类型上，变异把它改掉测试照样绿。
+1. **新护栏有契约测试吗。** 改了规矩相关代码，对应的契约测试文件里要有用例：业务规矩在 `packages/core/test/guardrails.test.ts`，公网输入的上限和 SSRF 在 `packages/core/test/security.test.ts`，HTTP 边界（鉴权、限流、失败关闭）在 `apps/api/test/routes.test.ts`。断言的是行为（工具返回的文本、预约的状态、注册表抛错、HTTP 状态码），不是类型。反例：注册表的 write 拦截原来只在 TypeScript 类型上，变异把它改掉测试照样绿。
 2. **新核心逻辑有变异吗。** 核心逻辑每加一条分支，`scripts/mutate.sh` 的 `MUTATIONS` 里要加一条能把它改坏的 sed。没有变异的护栏等于没人验。检查变异的 sed 真的匹配得到（脚本会报"sed 没匹配到"）。
 3. **测试是否在抄实现常数。** 搜 `toBe(0.` `toBeCloseTo(` `toBe(0.9)` 这类对置信度、权重、阈值的精确断言。这些该改成和 `LOW_CONFIDENCE` 比大小。常数是调参，不是规则。
 4. **是否 mock 了被测对象。** faux provider 只能用来喂模型回复。`vi.mock`、`vi.spyOn` 打在 `runTurn`、`computeQuote`、`verifyDraft`、`mergeDrafts` 这类被测函数上就是在测 mock。
