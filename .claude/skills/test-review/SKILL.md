@@ -10,6 +10,8 @@ allowed-tools: Bash(git diff *), Bash(git status *), Bash(git log *), Bash(npm t
 
 # 测试写法审查
 
+开始前读 `docs/reviews/dismissed.md`：里面是以前分诊时复现不出来或复核不成立的发现。其中条目引用的代码没变就不再报；变了照常报。
+
 参数：`$ARGUMENTS`。第一个词是基准（空则用 `origin/main`）；`--scores "..."` 是调用方（通常是 `/pr-review`）刚跑过的门禁结果。这个 skill 在独立的子代理里跑，看不到写代码的那段对话，只看仓库和 diff，这是有意的：作者不审自己。
 
 第一步自己跑：`git diff --stat <基准>...HEAD`（基准为空或参数以 `--scores` 开头时用 `origin/main`），把输出作为改动文件清单。

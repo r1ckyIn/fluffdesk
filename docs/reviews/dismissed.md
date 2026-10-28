@@ -21,7 +21,7 @@ code-review 没法带提示词，分诊时对照这里，同一条算"重复"不
 
 ## PUT /shop 和 PgShopRepo.save 各调一次 validateShopConfig，第二次失败会 500
 - PR / 轮次：#9 第 3 轮
-- 审查者原文：`apps/api/src/routes/groomer.ts:158` 与 `packages/db/src/stores/shops.ts:26` 对同一对象校验两次，若第二次失败会以 500 而非 400 返回
-- 复现尝试：读两处代码，都调同一个 `validateShopConfig`，输入相同，第二次不可能失败
-- 为什么不成立：路由那次是为了给 400 文案，仓库那次是为了别的调用方（seed、导入）也过不去；同一个函数不会分叉，成本可忽略
+- 审查者原文：`apps/api/src/routes/groomer.ts:160` 与 `packages/db/src/stores/shops.ts:26` 对同一对象校验两次，若第二次失败会以 500 而非 400 返回
+- 复现尝试：读两处代码，都调同一个 `validateShopConfig`，它是输入的纯函数且 schema parse 幂等，路由那次通过后仓库那次拿的是同一对象，不可能失败
+- 为什么不成立：路由那次是为了给 400 文案；仓库那次是 `ShopRepo` 端口的防御性校验（`save` 现在只有这个路由一个调用方，seed 和导入走 `upsert`，`upsert` 有自己的那次），不是给别的调用方兜底。成本可忽略。若将来两处换成不同的校验器，这条要重审
 - 复核：low，作者一句话否决
