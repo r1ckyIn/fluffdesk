@@ -21,6 +21,7 @@ npm run typecheck
 npm test                 # 离线，用 faux provider，不花钱
 npm run db:migrate       # 把 packages/db/migrations 里没跑过的迁移跑到 DATABASE_URL（Neon）
 npm run db:seed          # 把 packages/eval/datasets/shops.json 的 demo 店 upsert 进 shops 表
+npm run db:app-role -w packages/db -- production   # 用 owner 串建只有 DML 的 fluffdesk_app，app 串写到 ~/.config/fluffdesk/production-app.url
 npm run dev:api          # http://localhost:8787/health；没配 DATABASE_URL 走内存存储（重启丢）
 npm run dev:web          # http://localhost:3000
 npm run eval -- quote    # 真模型跑 eval（花钱）
@@ -88,7 +89,8 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 改 schema 后 `npm run db:generate -w packages/db` 重新生成迁移并提交，不手改 migrations/
 - [ ] 图片按需加载：现在每轮把会话的全部图片读进内存给 identify_pet 用，图多了要改成只读 id、工具用到再取
 - [ ] 会话文字历史的保留期限（产品决定，和 eval 集的需要一起定）
-- [ ] Neon：建 dev 分支给本地用，main 设受保护；API 用只有 DML 的角色，owner 角色只跑迁移
+- [ ] Neon：本地只连 dev 分支（`.env` 的 `DATABASE_URL`）；Fly 上 `DATABASE_URL` 是 production 的 fluffdesk_app 串，`MIGRATE_DATABASE_URL` 是 owner 串只给 release_command。Free 档没有受保护分支
+- [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比
