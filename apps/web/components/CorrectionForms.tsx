@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { useGroomer } from "@/lib/groomer-context";
 import { useLocale } from "@/lib/i18n";
 import type { Booking, PetSummary } from "@/lib/types";
-import { t2 } from "@/lib/format";
+import { DASH, t2 } from "@/lib/format";
 
 /**
  * 两张小卡：纠正识图、纠正报价。提交进 corrections 表，变成 eval 用例。
@@ -59,7 +59,7 @@ function PetCorrection({ booking, done, onDone }: { booking: Booking; done: bool
         <label className="field">
           <span>{t("correct.size")}</span>
           <select className="select" value={pet.sizeTier ?? ""} onChange={(e) => setPet({ ...pet, sizeTier: e.target.value || undefined })}>
-            <option value="">—</option>
+            <option value="">{DASH}</option>
             {shop.sizeTiers.map((tier) => (
               <option key={tier.id} value={tier.id}>{t2(tier.label, locale)}</option>
             ))}

@@ -4,7 +4,7 @@ import { api, ApiError } from "@/lib/api";
 import { useGroomer } from "@/lib/groomer-context";
 import { useLocale } from "@/lib/i18n";
 import type { Booking, Correction } from "@/lib/types";
-import { fmtAgo, fmtRange, fmtWhen, serviceName, tierLabel } from "@/lib/format";
+import { DASH, fmtAgo, fmtRange, fmtWhen, serviceName, tierLabel } from "@/lib/format";
 import { CorrectionForms } from "./CorrectionForms";
 import { DayStrip } from "./DayStrip";
 import { DeclinePanel } from "./DeclinePanel";
@@ -107,10 +107,10 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
         <div>
           <h2 style={{ font: "var(--type-section)", marginBottom: "var(--space-3)" }}>{t("detail.pet")}</h2>
           <dl className="kv">
-            <dt>{t("detail.pet")}</dt><dd>{booking.pet.name || "—"} <span className="muted">{booking.pet.species === "cat" ? t("correct.cat") : booking.pet.species === "dog" ? t("correct.dog") : t("correct.other")}</span></dd>
-            <dt>{t("detail.breed")}</dt><dd>{booking.pet.breedGuess || "—"}</dd>
-            <dt>{t("detail.size")}</dt><dd>{tierLabel(shop, booking.pet.sizeTier, locale) || "—"}{booking.pet.weightKg ? <span className="muted num"> · {booking.pet.weightKg} {t("detail.kg")}</span> : null}</dd>
-            <dt>{t("detail.coat")}</dt><dd>{booking.pet.coat ? t(`coat.${booking.pet.coat}` as "coat.short") : "—"}</dd>
+            <dt>{t("detail.pet")}</dt><dd>{booking.pet.name || DASH} <span className="muted">{booking.pet.species === "cat" ? t("correct.cat") : booking.pet.species === "dog" ? t("correct.dog") : t("correct.other")}</span></dd>
+            <dt>{t("detail.breed")}</dt><dd>{booking.pet.breedGuess || DASH}</dd>
+            <dt>{t("detail.size")}</dt><dd>{tierLabel(shop, booking.pet.sizeTier, locale) || DASH}{booking.pet.weightKg ? <span className="muted num"> · {booking.pet.weightKg} {t("detail.kg")}</span> : null}</dd>
+            <dt>{t("detail.coat")}</dt><dd>{booking.pet.coat ? t(`coat.${booking.pet.coat}` as "coat.short") : DASH}</dd>
             {booking.pet.notes ? (<><dt>{t("detail.notes")}</dt><dd className="text">{booking.pet.notes}</dd></>) : null}
           </dl>
         </div>

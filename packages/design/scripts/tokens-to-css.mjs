@@ -9,7 +9,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const tokens = JSON.parse(readFileSync(join(root, "project/tokens.json"), "utf8"));
 const outputs = [join(root, "dist/tokens.css"), join(root, "../../apps/web/app/tokens.css")];
 
-const lines = [`/* ${tokens.name} — generated from project/tokens.json; do not edit */`, ":root {"];
+const lines = [`/* ${tokens.name} - generated from project/tokens.json; do not edit */`, ":root {"];
 const theme = tokens.color.themes[0].id;
 for (const t of tokens.color.tokens) {
   const raw = typeof t.value === "string" ? t.value : t.value[theme];

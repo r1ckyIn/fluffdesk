@@ -34,7 +34,7 @@ export function DayStrip({ booking, confirmed, shop }: { booking: Booking; confi
         {ticks.map((m) => (
           <g key={m}>
             <line className="axis" x1={x(m)} x2={x(m)} y1="10" y2="18" />
-            <text className="hour" x={Math.min(x(m), W - 2)} y="30" textAnchor={m === open ? "start" : m === close ? "end" : "middle"}>{`${String(Math.floor(m / 60)).padStart(2, "0")}:00`}</text>
+            <text className="hour" x={Math.min(x(m), W - 2)} y="30" textAnchor={m === open ? "start" : m === close ? "end" : "middle"}>{`${String(Math.floor(m / 60)).padStart(2, "0")}:00`}</text>{/* taste-skill-ignore: 这是钟点标签 */}
           </g>
         ))}
         {bars.map((b) => (

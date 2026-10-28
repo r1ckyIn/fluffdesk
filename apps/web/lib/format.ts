@@ -51,9 +51,12 @@ export function fmtAgo(iso: string, locale: Locale, now = Date.now()): string {
   return locale === "zh" ? `${dt.getMonth() + 1}月${dt.getDate()}日` : `${dt.getDate()} ${EN_MONTHS[dt.getMonth()]}`;
 }
 
+/** 缺失值的占位：灰色一道，不是文案里的破折号。全站只在这里写一次 */
+export const DASH = "—"; // taste-skill-ignore
+
 /** 价格区间：$85–110，货币只写一次 */
 export function fmtRange(q: { min: number; max: number } | undefined): string {
-  if (!q) return "—";
+  if (!q) return DASH;
   return q.min === q.max ? `$${q.min}` : `$${q.min}–${q.max}`;
 }
 
