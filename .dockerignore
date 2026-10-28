@@ -3,8 +3,9 @@ node_modules
 **/dist
 .next
 .git
-.env
-.env.*
+**/.env
+**/.env.*
+!**/.env.example
 imports
 packages/eval/runs
 packages/eval/datasets/shops/*.draft.json
