@@ -41,7 +41,7 @@ argument-hint: "[基准，默认 origin/main]"
    - 改了 `apps/web` 的屏幕，跑设计系统那套：`inspect.mjs --app` 到 0 FAIL（命令和快照办法在 `scripts/inspect-snapshots.sh`，要人用 `!` 跑）。
    - 走完用接口查最终状态对不对（比如确认之后 `GET /bookings?status=decided` 里有那条、替代时段存进去了），不信页面上的提示。
    - 关键流程用 `gif_creator` 录下来存进 `<scratchpad>/pr-review/<分支名>/`，文件名写流程名；截图同样放那里。证据表里写路径、走了哪些流程、控制台和网络是否干净、最终状态查了什么。人要看就打开 GIF，不用自己点一遍。
-   - 走查不进 CI，也不能代替测试。走查通过的关键流程，若还没有自动化覆盖，在 README TODO 记一条"改写成 Playwright e2e"，不在这个 PR 里做。
+   - 走查不进 CI，也不能代替测试。走查通过的关键流程，若还没有自动化覆盖，在 GitHub issue #16（Playwright e2e）下评论追加这条流程，不在这个 PR 里做。
    - 踩过的坑：`resize_window` 在这台机器的窗口管理器下不生效，手机视口用一个本机 `localhost:<port>` 的包装页放 390 宽的 iframe（同站，共享 localStorage）；`next build` 之后要重启 `next start`，不然还是旧产物；变异脚本会临时改源码并让 tsx watch 重启、内存数据清空，跑变异时别造数、别起审查者；每条流程走完用 DOM 探针（`javascript_tool` 查元素和 rect）再核一次，扩展的截图在后台窗口里可能是旧帧。
 3. 风险定级，看 `git diff --name-only <基准>...HEAD` 命中哪一档，取最高：
 
@@ -71,7 +71,7 @@ argument-hint: "[基准，默认 origin/main]"
 |---|---|---|
 | 修 | code-review 的 high、important；security 保留项（≥8）；test-review 的必须改 | 本轮必修，没有例外。另外 medium 和 low 里"改动不超过二十行、不改接口、是明确的 bug 或 CLAUDE.md 有明文规矩"的也修，但前提是这个修复提交之后还会被审到（下一轮，或第四步的补审）；满足停止条件且补审名额已用时只能记 TODO |
 | 否决 | 复现不出来、或复核后不成立 | high、important、security 保留项：先派一个全新上下文的复核子代理，给它发现原文和相关代码，让它独立判断；它同意不成立才能否决，理由和复核结论一起记。medium 以下作者一句话理由即可。所有否决都追加进 `docs/reviews/dismissed.md`（误报与否决清单） |
-| 记 TODO | 成立，但超出这个 PR 的范围或要等外部条件 | 写进 README TODO 对应模块，一行，带来源（第几轮哪条）。high 和 important 不能记 TODO，除非复核子代理同意"成立但确实不属于这个 PR" |
+| 记 TODO | 成立，但超出这个 PR 的范围或要等外部条件 | 开一条 GitHub issue（`gh issue create`，label `review-finding`，是 bug 再加 `bug`、是实现债再加 `tech-debt`），正文写现状（文件:行）、要改成什么、来源（PR 和第几轮哪条）；同一处代码已有 issue 就在它下面评论追加。README TODO 只记进展和路线，不写修复项。high 和 important 不能记 TODO，除非复核子代理同意"成立但确实不属于这个 PR" |
 | 丢弃 | 纯风格、命名、个人偏好，CLAUDE.md 没有对应规矩 | 不记明细，只计数 |
 
 **先复现，再修。** 审查者的发现是线索不是事实。这条管的是"某处行为有 bug"这类主张；test-review 的必须改（测试写法）和 code-review 的重复、简化、效率类发现没有可复现的行为，跳过复现这一步，结局仍按上表定（必须改照旧本轮必修，整理类按级别）。每条主张 bug 的要修的：
@@ -89,7 +89,7 @@ argument-hint: "[基准，默认 origin/main]"
 
 修复规矩：
 
-- 一轮的所有修复合成**一个提交**，消息 `fix(review): 第 N 轮 k 条`，正文每条一行"发现 → 怎么改"。TODO 的 README 改动也进这个提交。
+- 一轮的所有修复合成**一个提交**，消息 `fix(review): 第 N 轮 k 条`，正文每条一行"发现 → 怎么改"；记 TODO 的发现写"→ issue #n"。
 - 修的是护栏类问题，按 CLAUDE.md 测试纪律先补契约测试再改实现；核心逻辑的修复同步往 `scripts/mutate.sh` 加变异。这样审查抓到的每个真 bug 都变成永久的护栏，下次不用靠审查再抓一次。
 - 修完重跑第一步的门禁，红了就修到绿再提交。门禁结果追加进记录文件。
 - 修复提交的 HEAD 就是下一轮的范围起点。
@@ -122,7 +122,7 @@ argument-hint: "[基准，默认 origin/main]"
 
 ## 五、报告与推送
 
-1. 按 `.github/pull_request_template.md` 写 PR 描述：做了什么、风险等级和高风险文件、证据表、审查记录表（每轮一行，范围写提交号）、停止依据、没修的 high（正常应为零）、本次否决并写进 `docs/reviews/dismissed.md` 的条目、没做的。内容全部来自记录文件，不凭记忆。
+1. 按 `.github/pull_request_template.md` 写 PR 描述：做了什么、风险等级和高风险文件、证据表、审查记录表（每轮一行，范围写提交号）、停止依据、没修的 high（正常应为零）、本次否决并写进 `docs/reviews/dismissed.md` 的条目、没做的（每条一个 issue 链接）。内容全部来自记录文件，不凭记忆。
 2. 在聊天里给人一份同样结构的收尾，加一句"审查共 N 轮，修复 k 条，否决 g 条（复核同意），TODO h 条"。高风险 PR 列出建议人亲自看的文件，不超过五个。
 3. 问一次：推分支并开 PR，CI 绿了之后合并，可以吗。这是整个流程里唯一要人回答的问题。人说可以就 `git push -u origin <分支>`、`gh pr create --body-file`、等 CI、`gh pr merge --squash --delete-branch`，然后更新记忆里的项目进度。
 4. 推送之后任何新提交（包括改 PR 描述以外的文档）都按第四步 3 的补审规则审一次，范围是 `<已审到的 HEAD>..HEAD`，有 high 或 important 就交给人；只改 README TODO、`docs/reviews/**` 的提交免审。合并前补完。
