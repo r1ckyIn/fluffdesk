@@ -27,8 +27,8 @@ lines.push("}", "");
 const css = lines.join("\n");
 
 if (process.argv.includes("--check")) {
-  // 只比对提交进仓库的那份；dist/ 被 gitignore，CI 里不存在，比它只会让每个 PR 都红
-  const committed = outputs.filter((out) => !out.includes(`${root}/dist/`) || existsSync(out));
+  // 只比对提交进仓库的那份；dist/ 被 gitignore，比它的结果取决于本机有没有、新不新，CI 和本地会不一致
+  const committed = outputs.filter((out) => !out.startsWith(join(root, "dist")));
   for (const out of committed) {
     const current = existsSync(out) ? readFileSync(out, "utf8") : "";
     if (current !== css) {

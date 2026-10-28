@@ -45,7 +45,7 @@ export function Shell({ session, shop, pendingCount, children }: { session: Groo
               <Link key={it.href} href={it.href} className="nav-item" aria-current={current ? "page" : undefined}>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{it.icon}</svg>
                 <span>{it.label}</span>
-                {it.count > 0 && <span className="count num" aria-label={`${it.count} ${t("inbox.count")}`}>{it.count}</span>}
+                {it.count > 0 && <span className="count num" aria-label={`${it.count} ${t(it.count === 1 ? "inbox.count1" : "inbox.count")}`}>{it.count}</span>}
               </Link>
             );
           })}

@@ -6,11 +6,12 @@ import { bookings } from "../schema.js";
 
 type Row = typeof bookings.$inferSelect;
 
-/** 预约存储的 Postgres 实现。状态机的落点在 decide：条件写在 SQL 里，两个人同时点只有一个成功 */
+/** 预约存储的 Postgres 实现。状态机的落点在 decide：条件写在 SQL 里，两个人同时点只有一个成功。id 和时钟可注入，和内存版一样 */
 export class PgBookingStore implements BookingStore {
   constructor(
     private readonly db: Db,
     private readonly newId: () => string = () => `bk_${randomUUID()}`,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   /** 同会话、同服务、同时段撞上部分唯一索引就回已有的那条，两个实例同时插也只会有一条 */
@@ -64,7 +65,8 @@ export class PgBookingStore implements BookingStore {
       .select()
       .from(bookings)
       .where(and(eq(bookings.shopSlug, shopSlug), inArray(bookings.status, statuses)))
-      .orderBy(desc(sql`coalesce(${bookings.decidedAt}, ${bookings.createdAt})`))
+      // 同一毫秒决定的两条按创建时间再排一次，顺序才稳定
+      .orderBy(desc(sql`coalesce(${bookings.decidedAt}, ${bookings.createdAt})`), desc(bookings.createdAt))
       .limit(limit);
     return rows.map(toBooking);
   }
@@ -91,7 +93,7 @@ export class PgBookingStore implements BookingStore {
   async decide(id: string, decision: Decision): Promise<Booking> {
     const [row] = await this.db
       .update(bookings)
-      .set({ status: decision.status, decidedAt: new Date(), decidedBy: decision.by, declineReason: decision.reason ?? null, alternatives: decidedFields(decision).alternatives ?? null })
+      .set({ status: decision.status, decidedAt: this.now(), decidedBy: decision.by, declineReason: decision.reason ?? null, alternatives: decidedFields(decision).alternatives ?? null })
       .where(and(eq(bookings.id, id), eq(bookings.status, "pending")))
       .returning();
     if (row) return toBooking(row);

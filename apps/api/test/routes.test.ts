@@ -33,7 +33,7 @@ function testRuntime(): Runtime {
     bookings,
     corrections: new MemoryCorrectionStore(),
     traceSinks: [],
-    limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000), groomerIp: new RateLimiter(100, 60_000), groomerAuth: new RateLimiter(5, 60_000) },
+    limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000), groomerIp: new RateLimiter(100, 60_000), groomerAuth: new RateLimiter(5, 60_000), groomerAuthAll: new RateLimiter(7, 60_000) },
     newTracer: (id) => new Tracer(id),
     calendarFor: () => new InMemoryCalendar(() => null),
     tools: defaultTools(),
@@ -72,6 +72,13 @@ describe("groomer routes", () => {
     for (let i = 0; i < 5; i++) expect((await guess()).status).toBe(401);
     expect((await guess()).status).toBe(429);
     expect((await app.request("/groomer/s1/bookings", { headers: { ...auth, "x-forwarded-for": "9.9.9.9" } })).status).toBe(200);
+  });
+  it("token guessing is also capped across all ips, so spoofing x-forwarded-for does not buy more tries", async () => {
+    const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN }); // 全站失败预算 7
+    const guess = (i: number) => app.request("/groomer/s1/bookings", { headers: { authorization: "Bearer nope", "x-forwarded-for": `10.0.0.${i}` } });
+    for (let i = 1; i <= 7; i++) expect((await guess(i)).status).toBe(401);
+    expect((await guess(8)).status).toBe(429);
+    expect((await app.request("/groomer/s1/bookings", { headers: { ...auth, "x-forwarded-for": "10.0.0.9" } })).status).toBe(200);
   });
   it("groomer traffic has its own per-ip budget, separate from the public chat limit", async () => {
     const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN }); // 聊天的每 IP 预算是 5
@@ -189,6 +196,7 @@ describe("groomer routes", () => {
     const put = (body: unknown) => app.request("/groomer/s1/shop", { ...json(body, auth), method: "PUT" });
     expect((await put({ ...shop, slug: "s2" })).status).toBe(400);
     expect((await put({ ...shop, services: [] })).status).toBe(400);
+    expect((await put({ ...shop, services: [...shop.services, { ...shop.services[0]! }] })).status).toBe(400); // 重复 id 在写边界被拒
     expect((await rt.shops.get("s1"))?.name).toBe("S1"); // 两次 400 都没写
     const ok = await put({ ...shop, name: "S1 renamed", phone: "02 9000 0000" });
     expect(ok.status).toBe(200);

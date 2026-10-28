@@ -4,7 +4,7 @@ import { ToolRegistry, defineTool, type ToolContext } from "../src/tools/registr
 import { defaultTools, quoteTool, identifyPetTool, holdBookingTool } from "../src/tools/index.js";
 import { InMemoryBookingStore, InMemoryCalendar, bookingSlot } from "../src/booking/ports.js";
 import { parseDecision } from "../src/booking/decision.js";
-import { parseShopConfig } from "../src/shop/schema.js";
+import { parseShopConfig, validateShopConfig } from "../src/shop/schema.js";
 import { transcript } from "../src/agent/transcript.js";
 import { newConversation } from "../src/agent/loop.js";
 import { demoShop, fauxGateway } from "./fixtures.js";
@@ -134,8 +134,14 @@ describe("美容师端的决定", () => {
     expect(() => parseDecision({ status: "cancelled", by: "g" })).toThrow(/status/);
     expect(() => parseDecision({ status: "confirmed", by: "  " })).toThrow(/by/);
     expect(parseDecision({ status: "declined", by: "g", alternatives: [] })).toEqual({ status: "declined", by: "g" });
-    expect(parseDecision({ status: "declined", by: ` ${"g".repeat(100)} `, reason: "x".repeat(600), alternatives: ["2026-11-04T11:00", "2026-11-04T10:00"] }))
-      .toEqual({ status: "declined", by: "g".repeat(80), reason: "x".repeat(500), alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
+    // 超长的 by 和 reason 被截短：是输入的前缀、比输入短，具体截到多长是产品参数，不在这里断言
+    const long = parseDecision({ status: "declined", by: ` ${"g".repeat(1000)} `, reason: "x".repeat(5000), alternatives: ["2026-11-04T11:00", "2026-11-04T10:00"] });
+    expect(long.alternatives).toEqual(["2026-11-04T10:00", "2026-11-04T11:00"]);
+    expect(long.by.length).toBeGreaterThan(0);
+    expect(long.by.length).toBeLessThan(1000);
+    expect("g".repeat(1000).startsWith(long.by)).toBe(true);
+    expect(long.reason!.length).toBeLessThan(5000);
+    expect("x".repeat(5000).startsWith(long.reason!)).toBe(true);
   });
   it("the in-memory store keeps alternatives only for a decline, like the Postgres one", async () => {
     const store = new InMemoryBookingStore();
@@ -176,12 +182,16 @@ describe("按日期查已确认的预约", () => {
 
 describe("店铺资料的引用完整性", () => {
   const base = JSON.parse(JSON.stringify(demoShop)) as typeof demoShop;
-  it("rejects duplicate service ids, duplicate tier ids and prices that point at a missing tier", () => {
-    expect(() => parseShopConfig({ ...base, services: [...base.services, { ...base.services[0] }] })).toThrow(/duplicate id/);
-    expect(() => parseShopConfig({ ...base, sizeTiers: [...base.sizeTiers, { ...base.sizeTiers[0] }] })).toThrow(/duplicate id/);
+  it("the write boundary rejects duplicate service ids, duplicate tier ids and prices that point at a missing tier", () => {
+    expect(() => validateShopConfig({ ...base, services: [...base.services, { ...base.services[0] }] })).toThrow(/duplicate id/);
+    expect(() => validateShopConfig({ ...base, sizeTiers: [...base.sizeTiers, { ...base.sizeTiers[0] }] })).toThrow(/duplicate id/);
     const dangling = { ...base, services: [{ ...base.services[0]!, prices: [{ ...base.services[0]!.prices[0]!, size: "giant" }] }] };
-    expect(() => parseShopConfig(dangling)).toThrow(/unknown size tier "giant"/);
-    expect(parseShopConfig(base).slug).toBe(base.slug); // 原样的 demo 店通过
+    expect(() => validateShopConfig(dangling)).toThrow(/unknown size tier "giant"/);
+    expect(validateShopConfig(base).slug).toBe(base.slug); // 原样的 demo 店通过
+  });
+  it("the read path still loads a stored config with a dangling price, so the shop can be opened and repaired", () => {
+    const dangling = { ...base, services: [{ ...base.services[0]!, prices: [{ ...base.services[0]!.prices[0]!, size: "giant" }] }] };
+    expect(parseShopConfig(dangling).slug).toBe(base.slug);
   });
 });
 

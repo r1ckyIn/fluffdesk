@@ -90,16 +90,25 @@ export function parseShopConfig(input: unknown): ShopConfig {
     const errors = [...Value.Errors(ShopConfig, withDefaults)].slice(0, 5).map((e) => `${e.instancePath || "/"}: ${e.message}`);
     throw new Error(`invalid shop config: ${errors.join("; ")}`);
   }
-  const problems = referenceProblems(withDefaults);
-  if (problems.length > 0) throw new Error(`invalid shop config: ${problems.slice(0, 5).join("; ")}`);
   return withDefaults;
 }
 
 /**
- * schema 管不到的引用完整性：id 是 agent、价目表和历史预约之间的钥匙，重复的 id 会让 findService 悄悄取到错的那条，
- * 价目指向不存在的体型档会让 quote 找不到价。美容师端编辑和导入器都走这里，所以放在 parse 里而不是表单里。
+ * 写边界用：schema 之外再查引用完整性。读路径（PgShopRepo.get/list）只用 parseShopConfig，
+ * 不然库里一条老配置有问题就整店读不出来，连去修它的 PUT 都进不去。
  */
-function referenceProblems(shop: ShopConfig): string[] {
+export function validateShopConfig(input: unknown): ShopConfig {
+  const shop = parseShopConfig(input);
+  const problems = shopReferenceProblems(shop);
+  if (problems.length > 0) throw new Error(`invalid shop config: ${problems.slice(0, 5).join("; ")}`);
+  return shop;
+}
+
+/**
+ * schema 管不到的引用完整性：id 是 agent、价目表和历史预约之间的钥匙，重复的 id 会让 findService 悄悄取到错的那条，
+ * 价目指向不存在的体型档会让 quote 找不到价。美容师端 PUT、seed/导入的 upsert 都在写入前查。
+ */
+export function shopReferenceProblems(shop: ShopConfig): string[] {
   const out: string[] = [];
   const tierIds = shop.sizeTiers.map((t) => t.id);
   const serviceIds = shop.services.map((s) => s.id);

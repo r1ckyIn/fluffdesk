@@ -55,6 +55,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 第一家真实店铺（Fenny & Jacks）导入通过，分档价目和店家预约页一致
 - [ ] 预约页来源：Timely、Fresha 这类公开预约页，信息比官网准
 - [ ] 服务时长：来源没写时别用 60 分钟占位，标成缺失让人填
+- [ ] 合并时价目的 size 要落到选中的体型档上：抽取结果里的 `all` 之类要展开成每一档或记进 missing，不然 `validateShopConfig` 在 seed/upsert 时整店拒掉（Fenny & Jacks 草稿里 wash-dry 就是 size=all；chore/taste-skill 第 2 轮审查）
 - [ ] policies 抽取：取消政策、不接的品种、打结加价这些进 notes
 - [ ] 草稿确认流：美容师端看草稿、改字段、点确认后进 shops 表
 
@@ -81,6 +82,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp Cloud API：同上
 
 ### 美容师端（PWA）
+- [ ] ShopForm 的"行来自已保存资料"标记现在是和 draft 并行的布尔数组，四个 handler 手工对齐；改成标记跟着行走（行上带 `_saved`，normalise 时剥掉）（chore/taste-skill 第 2 轮审查）
 - [x] 过渡期登录：店铺 id + 名字 + 共享 `GROOMER_API_TOKEN` 存本机浏览器，401 自动退出
 - [x] 待确认列表，一键确认/拒绝，拒绝从空档里挑最多 3 个替代时间（`bookings.alternatives`，迁移 0002）
 - [x] 详情看客人对话和照片（`GET /groomer/:shop/conversations/:id`，图片按 id 另取），当天安排条（已确认减掉空档）

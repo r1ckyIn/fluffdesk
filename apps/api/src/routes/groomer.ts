@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
-  BookingStateError, DecisionInputError, findService, parseDecision, parseShopConfig, transcript,
+  BookingStateError, DecisionInputError, findService, parseDecision, transcript, validateShopConfig,
   type BookingStatus, type Correction,
 } from "@fluffdesk/core";
 import type { AppEnv } from "../app.js";
@@ -27,8 +27,9 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     if (!limits.groomerIp.take(ip)) return c.json({ error: "too many requests" }, 429);
     const provided = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!verifyTokenMatches(token, provided)) {
-      // 猜令牌单独数：失败次数到了就一直 429，对的令牌不受影响
-      if (!limits.groomerAuth.take(ip)) return c.json({ error: "too many requests" }, 429);
+      // 猜令牌单独数：失败次数到了就一直 429，对的令牌不受影响。
+      // 每 IP 一桶之外再加一个全站的桶：Fly 之外 x-forwarded-for 能随便写，换 IP 换不掉这个上限
+      if (!limits.groomerAuth.take(ip) || !limits.groomerAuthAll.take("all")) return c.json({ error: "too many requests" }, 429);
       c.header("www-authenticate", 'Bearer realm="groomer"');
       return c.json({ error: "unauthorized" }, 401);
     }
@@ -154,7 +155,7 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     if (body.slug !== c.req.param("shop")) return c.json({ error: "slug must match the path" }, 400);
     let config;
     try {
-      config = parseShopConfig(body);
+      config = validateShopConfig(body);
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }

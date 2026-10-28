@@ -1,5 +1,5 @@
 import { and, asc, eq, or, sql } from "drizzle-orm";
-import { parseShopConfig, type ShopConfig, type ShopEditor, type ShopRepo } from "@fluffdesk/core";
+import { parseShopConfig, validateShopConfig, type ShopConfig, type ShopEditor, type ShopRepo } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { shops } from "../schema.js";
 
@@ -21,9 +21,9 @@ export class PgShopRepo implements ShopRepo, ShopEditor {
     return rows.map((r) => parseShopConfig(r.config));
   }
 
-  /** 美容师端改资料：只改已确认的店，草稿和不存在的店回 false。整份覆盖，先过 core 的 schema */
+  /** 美容师端改资料：只改已确认的店，草稿和不存在的店回 false。整份覆盖，先过 core 的 schema 和引用检查 */
   async save(config: ShopConfig): Promise<boolean> {
-    const cfg = parseShopConfig(config);
+    const cfg = validateShopConfig(config);
     const rows = await this.db
       .update(shops)
       .set({ config: cfg, updatedAt: new Date() })
@@ -38,7 +38,7 @@ export class PgShopRepo implements ShopRepo, ShopEditor {
    * 返回 written=false 表示因此被跳过。
    */
   async upsert(config: unknown, opts: { approved: boolean }): Promise<{ config: ShopConfig; written: boolean }> {
-    const cfg = parseShopConfig(config);
+    const cfg = validateShopConfig(config);
     const rows = await this.db
       .insert(shops)
       .values({ slug: cfg.slug, config: cfg, approved: opts.approved })

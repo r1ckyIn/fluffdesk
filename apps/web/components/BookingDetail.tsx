@@ -16,12 +16,13 @@ import { Transcript } from "./Transcript";
  * 决定 → 需要的话纠正 agent → 看原始对话。一屏里只有一个主按钮（确认）。
  */
 export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking; onDecided?: (b: Booking) => void; onBack?: () => void }) {
-  const { session, shop, notify } = useGroomer();
+  const { session, shop, notify, reportError } = useGroomer();
   const { t, locale } = useLocale();
   const [declining, setDeclining] = useState(false);
   const [busy, setBusy] = useState(false);
   const [flash, setFlash] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
-  const [confirmed, setConfirmed] = useState<Booking[]>([]);
+  // null = 还没拿到；"error" = 拿失败了。失败不能画成"那天没冲突"，这条信息直接影响要不要确认
+  const [confirmed, setConfirmed] = useState<Booking[] | null | "error">(null);
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [photos, setPhotos] = useState<string[]>([]);
   const readOnly = booking.status !== "pending";
@@ -31,12 +32,20 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
     setFlash(null);
     setPhotos([]);
     let alive = true;
-    api.confirmedOn(session, booking.start.slice(0, 10)).then((all) => alive && setConfirmed(all)).catch(() => {});
+    setConfirmed(null);
+    api
+      .confirmedOn(session, booking.start.slice(0, 10))
+      .then((all) => alive && setConfirmed(all))
+      .catch((e) => {
+        if (!alive) return;
+        setConfirmed("error");
+        reportError(e);
+      });
     api.corrections(session).then((all) => alive && setCorrections(all.filter((c) => c.conversationId === booking.conversationId))).catch(() => {});
     return () => {
       alive = false;
     };
-  }, [session, booking.id, booking.conversationId, booking.start]);
+  }, [session, booking.id, booking.conversationId, booking.start, reportError]);
 
   async function decide(status: "confirmed" | "declined", reason?: string, alternatives?: string[]) {
     if (busy) return;
@@ -69,10 +78,11 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
           <h2 className="detail-title">{booking.customer.name}{petLine ? ` · ${petLine}` : ""}</h2>
           <div className="sub">
             <StatusPill status={booking.status} />
-            {booking.pet.breedGuess ? <span>{booking.pet.breedGuess}</span> : null}
-            <span className="dotted">{booking.pet.breedGuess ? <span aria-hidden="true">· </span> : null}{serviceName(shop, booking.serviceId, locale)}</span>
-            <span className="dotted num"><span aria-hidden="true">· </span>{fmtWhen(booking.start, locale)}</span>
-            <span className="dotted num"><span aria-hidden="true">· </span>{fmtRange(booking.quote)}</span>
+            {/* 点号跟在前一个值后面且不拆行：换行只会发生在点号之后，新一行永远以值开头 */}
+            {booking.pet.breedGuess ? <span className="dotted">{booking.pet.breedGuess}<span aria-hidden="true"> ·</span></span> : null}
+            <span className="dotted">{serviceName(shop, booking.serviceId, locale)}<span aria-hidden="true"> ·</span></span>
+            <span className="dotted num">{fmtWhen(booking.start, locale)}<span aria-hidden="true"> ·</span></span>
+            <span className="num">{fmtRange(booking.quote)}</span>
           </div>
         </div>
         {!readOnly && !declining && (
@@ -129,7 +139,7 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
 
       <section className="section">
         <h2>{t("detail.day")}</h2>
-        <DayStrip booking={booking} confirmed={confirmed} shop={shop} />
+        {confirmed === "error" ? <p className="notice notice-bad">{t("detail.dayError")}</p> : confirmed === null ? <p className="muted">{t("chat.loading")}</p> : <DayStrip booking={booking} confirmed={confirmed} shop={shop} />}
       </section>
 
       <section className="section">

@@ -40,7 +40,7 @@ beforeAll(async () => {
   db = pg;
   shops = new PgShopRepo(db);
   conversations = new PgConversationStore(db);
-  bookings = new PgBookingStore(db);
+  bookings = new PgBookingStore(db, undefined, ticking());
 }, 60_000);
 
 // 每条用例从空表开始：PGlite 一个连接，存储自己有事务，不能再套一层外部事务回滚，所以用 truncate
@@ -49,6 +49,12 @@ beforeEach(async () => {
   await shops.upsert(shopConfig("s1"), { approved: true });
   await shops.upsert(shopConfig("s2"), { approved: true });
 });
+
+/** 可控时钟：每调一次往后走一秒。两次 decide 落在同一毫秒时 decided_at 会平手，排序就不稳定 */
+const ticking = () => {
+  let t = Date.parse("2026-10-28T00:00:00Z");
+  return () => new Date((t += 1000));
+};
 
 const pendingInput = (conv: Conversation, shopSlug = conv.shopSlug) => ({
   shopSlug,
