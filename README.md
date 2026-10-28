@@ -19,7 +19,10 @@ cp .env.example .env     # 填 key
 npm install
 npm run typecheck
 npm test                 # 离线，用 faux provider，不花钱
-npm run dev:api          # http://localhost:8787/health
+npm run db:migrate       # 把 packages/db/migrations 里没跑过的迁移跑到 DATABASE_URL（Neon）
+npm run db:seed          # 把 packages/eval/datasets/shops.json 的 demo 店 upsert 进 shops 表
+npm run db:app-role -w packages/db -- production   # 用 owner 串建只有 DML 的 fluffdesk_app，app 串写到 ~/.config/fluffdesk/production-app.url
+npm run dev:api          # http://localhost:8787/health；没配 DATABASE_URL 走内存存储（重启丢）
 npm run dev:web          # http://localhost:3000
 npm run eval -- quote    # 真模型跑 eval（花钱）
 npm run eval -- quote --replay   # 按录制回放，不花钱，CI 用
@@ -79,9 +82,22 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp / Instagram POST webhook 验签（接渠道时一起做）
 - [ ] DNS rebinding：上线后在 Fly 出口网络层再拦一道内网地址
 
-### 数据与部署（下一个 session）
-- [ ] runtime.ts 从内存实现换成 @fluffdesk/db（Neon 悉尼区已建好，`npm run db:check -w packages/db` 能连上），跑一次 migration
-- [ ] 对话、预约、轨迹、修正落库
+### 数据与部署
+- [x] runtime.ts 按 DATABASE_URL 切换到 @fluffdesk/db（Neon 悉尼区），迁移文件进仓库，部署前 release_command 跑迁移
+- [x] 店铺、对话（含图片）、预约、轨迹、修正落库；decide 原子更新；同一会话并发轮次串行
+- [x] 闲置 24 小时的会话清掉图片（表里的行和消息里内嵌的），文字历史留着
+- [ ] 改 schema 后 `npm run db:generate -w packages/db` 重新生成迁移并提交，不手改 migrations/
+- [ ] 图片按需加载：现在每轮把会话的全部图片读进内存给 identify_pet 用，图多了要改成只读 id、工具用到再取
+- [ ] 会话文字历史的保留期限（产品决定，和 eval 集的需要一起定）
+- [x] Neon：本地只连 dev 分支（`.env` 的 `DATABASE_URL`）；API 用只有 DML 的 `fluffdesk_app`（`db:app-role` 用 SQL 建，控制台建的角色带 neon_superuser）。Free 档没有受保护分支，接受
+- [ ] 部署时设 Fly secrets：`DATABASE_URL` 用 production 的 fluffdesk_app 串，`MIGRATE_DATABASE_URL` 用 owner 串只给 release_command（两个串都在 `~/.config/fluffdesk/`）
+- [ ] PR 级 e2e：GitHub Action 每个 PR 从 production 建 Neon 分支、跑连真库的冒烟、PR 关了删分支。要项目级 API key 进 GitHub secrets、`NEON_PROJECT_ID` 做 variable；先写冒烟脚本再建 key
+- [ ] eval 对着临时 Neon 分支跑，判分直接查库的最终状态（现在查内存存储）
+- [ ] `hold_booking` 重复执行的幂等（按 toolCallId 去重），现在只靠每会话最多两个的上限
+- [ ] 用 `fluffdesk_app` 跑一遍权限被拒的用例（DDL、别的 schema），确认角色降权有效
+- [ ] db 测试逐条回滚（现在每个文件一个新 PGlite 实例，用例之间靠不同 key 隔离）
+- [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
+- [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比
 

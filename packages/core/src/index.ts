@@ -11,3 +11,6 @@ export * from "./booking/types.js";
 export * from "./booking/ports.js";
 export * from "./trace/tracer.js";
 export * from "./corrections/types.js";
+export * from "./shop/repo.js";
+export * from "./agent/conversation-store.js";
+export * from "./corrections/store.js";

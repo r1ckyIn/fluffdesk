@@ -24,8 +24,8 @@ COPY --from=build /app/apps/web/package.json apps/web/
 RUN npm ci --workspace apps/api --include-workspace-root --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/packages/core/dist packages/core/dist
 COPY --from=build /app/packages/db/dist packages/db/dist
+COPY --from=build /app/packages/db/migrations packages/db/migrations
 COPY --from=build /app/apps/api/dist apps/api/dist
-COPY packages/eval/datasets/shops.json packages/eval/datasets/shops.json
 USER node
 EXPOSE 8787
 CMD ["node", "apps/api/dist/index.js"]

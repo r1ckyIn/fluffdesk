@@ -5,6 +5,13 @@ primary_region = "syd"
 [build]
   dockerfile = "Dockerfile"
 
+# 每次部署前先把没跑过的迁移跑到 Neon；失败就不发布
+[deploy]
+  release_command = "node packages/db/dist/migrate.js"
+
+# 停机给在飞的请求留时间，比 index.ts 的 SHUTDOWN_GRACE_MS 长
+kill_timeout = "15s"
+
 [http_service]
   internal_port = 8787
   force_https = true

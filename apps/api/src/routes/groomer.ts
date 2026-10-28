@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
-import type { Correction } from "@fluffdesk/core";
+import { BookingStateError, type Correction } from "@fluffdesk/core";
 import type { AppEnv } from "../app.js";
 import { clientIp } from "./chat.js";
 import { verifyTokenMatches } from "./webhooks.js";
@@ -29,7 +29,9 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
   });
 
   routes.use("/:shop/*", async (c, next) => {
-    if (!c.get("rt").shops.get(c.req.param("shop"))) return c.json({ error: "not found" }, 404);
+    const shop = await c.get("rt").shops.get(c.req.param("shop"));
+    if (!shop) return c.json({ error: "not found" }, 404);
+    c.set("shop", shop);
     await next();
   });
 
@@ -55,7 +57,9 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
       // TODO: confirmed 之后写日历、通知客人；declined 之后通知客人并给替代时间
       return c.json({ booking });
     } catch (e) {
-      return c.json({ error: (e as Error).message }, 409);
+      // 只有业务拒绝回 409；数据库驱动的报错走 onError，不把细节吐出去
+      if (e instanceof BookingStateError) return c.json({ error: e.message }, 409);
+      throw e;
     }
   });
 
@@ -77,15 +81,13 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
       by: body.by,
       createdAt: new Date().toISOString(),
     };
-    rt.corrections.push(correction);
-    if (rt.corrections.length > MAX_CORRECTIONS) rt.corrections.splice(0, rt.corrections.length - MAX_CORRECTIONS);
+    await rt.corrections.add(correction);
     return c.json({ correction }, 201);
   });
 
-  routes.get("/:shop/shop", (c) => c.json({ shop: c.get("rt").shops.get(c.req.param("shop")) }));
+  routes.get("/:shop/shop", (c) => c.json({ shop: c.get("shop") }));
 
   return routes;
 }
 
-const MAX_CORRECTIONS = 5000;
 const CORRECTION_KINDS = new Set<Correction["kind"]>(["pet_identification", "quote", "reply"]);

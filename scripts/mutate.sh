@@ -22,6 +22,9 @@ MUTATIONS=(
   'apps/api/src/routes/webhooks.ts@@s/if (!expected || !provided) return false;/if (!provided) return false;/@@webhook 没配 token 时放行'
   'packages/core/src/shop/importer/safe-fetch.ts@@s/\["::ffff:0:0", 96\], //@@抓取放过 IPv4 映射的 IPv6 地址'
   'apps/api/src/routes/groomer.ts@@s/existing.shopSlug !== c.req.param("shop")/false/@@美容师端能决定别家店的预约'
+  'packages/db/src/stores/bookings.ts@@s/and(eq(bookings.id, id), eq(bookings.status, "pending"))/eq(bookings.id, id)/@@Postgres 版 decide 不看 pending，已决定的还能再改'
+  'packages/db/src/stores/shops.ts@@s/and(eq(shops.slug, slug), eq(shops.approved, true))/eq(shops.slug, slug)/@@agent 能看到没确认的草稿店铺'
+  'apps/api/src/session-lock.ts@@s/const prev = tails.get(key) ?? Promise.resolve();/const prev = Promise.resolve();/@@同一会话并发轮次不串行'
 )
 
 files=()

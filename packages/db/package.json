@@ -12,9 +12,11 @@
   "scripts": {
     "build": "tsc -b",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
+    "db:migrate": "tsx --env-file-if-exists=../../.env src/migrate.ts",
+    "db:seed": "tsx --env-file-if-exists=../../.env src/seed.ts",
     "db:studio": "drizzle-kit studio",
-    "db:check": "tsx --env-file-if-exists=../../.env src/check.ts"
+    "db:check": "tsx --env-file-if-exists=../../.env src/check.ts",
+    "db:app-role": "tsx --env-file-if-exists=../../.env src/create-app-role.ts"
   },
   "dependencies": {
     "@fluffdesk/core": "*",
@@ -22,6 +24,7 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.12",
     "drizzle-kit": "^0.31.8",
     "tsx": "^4.20.6"
   }

@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
-import { createGateway, defaultTools, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, Tracer, type Conversation } from "@fluffdesk/core";
+import { conversationKey, createGateway, defaultTools, newConversation, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, Tracer, type Conversation } from "@fluffdesk/core";
 import { createApp } from "../src/app.js";
 import type { Runtime } from "../src/runtime.js";
 import { BoundedStore, RateLimiter } from "../src/ratelimit.js";
+import { MemoryConversationStore, MemoryCorrectionStore } from "../src/memory.js";
+import { handleInbound } from "../src/channels/base.js";
 import { verifyTokenMatches } from "../src/routes/webhooks.js";
 import { validateImages } from "../src/routes/chat.js";
 
@@ -26,15 +28,16 @@ function testRuntime(): Runtime {
   const bookings = new InMemoryBookingStore();
   return {
     gateway: createGateway({ models, roleModels: { chat: m, vision: m, judge: m, fallback: m } }),
-    shops: { get: (slug) => (slug === shop.slug ? shop : undefined), list: () => [shop] },
-    conversations: new BoundedStore<Conversation>(100, 60_000),
+    shops: new InMemoryShopRepo([shop]),
+    conversations: new MemoryConversationStore(new BoundedStore<Conversation>(100, 60_000)),
     bookings,
-    corrections: [],
+    corrections: new MemoryCorrectionStore(),
     traceSinks: [],
     limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000) },
     newTracer: (id) => new Tracer(id),
     calendarFor: () => new InMemoryCalendar(() => null),
     tools: defaultTools(),
+    close: async () => {},
   };
 }
 
@@ -72,14 +75,30 @@ describe("groomer routes", () => {
     expect((await decide("other-shop")).status).toBe(404); // 这家店不在运行时里
     expect((await app.request("/groomer/nope/bookings/pending", { headers: auth })).status).toBe(404);
   });
+  it("decide answers 409 for a decided booking but hides storage errors behind a generic 500", async () => {
+    const rt = testRuntime();
+    const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
+    const b = await rt.bookings.createPending({ shopSlug: "s1", conversationId: "c", customer: { name: "A", contact: "0400", channel: "web" }, pet: { species: "dog" }, serviceId: "bath", durationMin: 60, start: "2026-11-03T10:00" });
+    const decide = () => app.request(`/groomer/s1/bookings/${b.id}/decide`, json({ status: "confirmed", by: "g" }, auth));
+    expect((await decide()).status).toBe(200);
+    const again = await decide();
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: expect.stringContaining("already confirmed") });
+    rt.bookings.decide = async () => { throw new Error("connection to server at pooler lost"); };
+    rt.bookings.get = async () => b;
+    const broken = await decide();
+    expect(broken.status).toBe(500);
+    expect(await broken.json()).toEqual({ error: "internal error" });
+  });
   it("corrections are built from named fields, not the raw body", async () => {
     const rt = testRuntime();
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
     const r = await app.request("/groomer/s1/corrections", json({ kind: "quote", conversationId: "c", by: "g", original: 1, corrected: 2, shopSlug: "other", id: "forged", createdAt: "1999" }, auth));
     expect(r.status).toBe(201);
-    expect(rt.corrections[0]).toMatchObject({ shopSlug: "s1", kind: "quote" });
-    expect(rt.corrections[0]?.id).not.toBe("forged");
-    expect(rt.corrections[0]?.createdAt).not.toBe("1999");
+    const [stored] = await rt.corrections.list("s1");
+    expect(stored).toMatchObject({ shopSlug: "s1", kind: "quote" });
+    expect(stored?.id).not.toBe("forged");
+    expect(stored?.createdAt).not.toBe("1999");
   });
 });
 
@@ -107,9 +126,41 @@ describe("chat route", () => {
     expect((await other(1)).status).toBe(200);
     expect((await other(2)).status).toBe(429); // 同 ip 第 6 次超过每 ip 5 次
   });
+  it("strips NUL bytes before the text reaches the model or the database", async () => {
+    const rt = testRuntime();
+    const app = createApp(rt, {});
+    const r = await app.request("/chat/s1", json({ sessionId: "session-nul1", text: "hi\u0000there" }));
+    expect(r.status).toBe(200);
+    const conv = await rt.conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "session-nul1" }, "en");
+    expect(JSON.stringify(conv.messages)).not.toContain("\\u0000");
+    expect(JSON.stringify(conv.messages)).toContain("hithere");
+  });
   it("returns 413 for oversized bodies and a generic 500 on internal errors", async () => {
     const huge = { sessionId: "session-cccc", text: "hi", images: [{ data: "A".repeat(8 * 1024 * 1024), mimeType: "image/png" }] };
     expect((await app.request("/chat/s1", json(huge))).status).toBe(413);
+  });
+});
+
+describe("inbound handling", () => {
+  it("serialises concurrent turns of one session so neither turn is lost", async () => {
+    const rt = testRuntime();
+    // 像数据库那样：每次取出的是一份拷贝，save 才写回。两轮并发不串行的话，后 save 的会盖掉先 save 的
+    const saved = new Map<string, Conversation>();
+    rt.conversations = {
+      async findOrCreate(key, locale) {
+        const k = conversationKey(key);
+        const c = saved.get(k) ?? newConversation({ id: k, shopSlug: key.shopSlug, channel: key.channel, locale });
+        return { ...c, messages: [...c.messages], images: new Map(c.images) };
+      },
+      async save(c) {
+        saved.set(c.id, c);
+      },
+    };
+    const msg = (text: string) => ({ shop, channel: "web", externalId: "sess-race", input: { text } });
+    await Promise.all([handleInbound(rt, msg("first")), handleInbound(rt, msg("second"))]);
+    const conv = saved.get("s1:web:sess-race");
+    expect(conv?.messages).toHaveLength(4); // 两轮各一条客人消息和一条回复
+    expect(conv?.messages.filter((m) => m.role === "user")).toHaveLength(2);
   });
 });
 
