@@ -99,6 +99,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ---------- 收件箱：列表 + 打开的那条 ---------- */
 .inbox { display: grid; grid-template-columns: 384px minmax(0, 1fr); height: 100%; min-height: 0; }
+/* 队列空了：不摆两栏，标题和一句话占整张纸面 */
+.inbox[data-view="empty"] { grid-template-columns: minmax(0, 1fr); }
+.inbox[data-view="empty"] .list-col { border-right: 0; }
+.inbox[data-view="empty"] .detail-col { display: none; }
+.inbox[data-view="empty"] .empty { text-align: left; padding: var(--space-3) var(--space-5) var(--space-5); max-width: 56ch; }
 .list-col { border-right: 1px solid var(--color-rule); display: flex; flex-direction: column; min-height: 0; }
 .list-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding: var(--space-5) var(--space-5) var(--space-3); }
 .list-head h1 { font: var(--type-page-title); font-family: var(--font-serif); font-variation-settings: "SOFT" 100, "WONK" 0; font-optical-sizing: auto; }
@@ -116,7 +121,7 @@ a { color: inherit; text-decoration: none; }
 .empty { padding: var(--space-8) var(--space-5); color: var(--color-muted); text-align: center; }
 .detail-col { overflow: auto; min-height: 0; padding: var(--space-5); }
 .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-5); }
-.detail-head h1 { font: var(--type-page-title); font-family: var(--font-serif); font-variation-settings: "SOFT" 100, "WONK" 0; font-optical-sizing: auto; }
+.detail-head .detail-title { font: var(--type-page-title); font-family: var(--font-serif); font-variation-settings: "SOFT" 100, "WONK" 0; font-optical-sizing: auto; }
 .detail-head .sub { margin-top: var(--space-1); color: var(--color-muted); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 .section { margin-top: var(--space-6); }
@@ -201,7 +206,10 @@ a { color: inherit; text-decoration: none; }
   .sheet { grid-column: 1; margin: 0; border-radius: 0; border-left: 0; border-right: 0; }
   .canvas, .detail-col { padding: var(--space-4); }
   .inbox { grid-template-columns: minmax(0, 1fr); }
-  .inbox[data-view="detail"] .list-col { display: none; }
+  /* 手机上打开一条：列表收起，但页面的 h1（队列名和计数）留在顶上，下面是这一条 */
+  .inbox[data-view="detail"] .list-col .rows, .inbox[data-view="detail"] .list-col .empty { display: none; }
+  .inbox[data-view="detail"] .list-head { padding-bottom: 0; }
+  .inbox[data-view="detail"] .list-col { border-bottom: 0; }
   .inbox[data-view="list"] .detail-col { display: none; }
   .list-col { border-right: 0; }
   .list-head, .row { padding-left: var(--space-4); padding-right: var(--space-4); }

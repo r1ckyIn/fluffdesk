@@ -32,7 +32,7 @@ function Inbox() {
   }, [selectedId, pending]);
 
   return (
-    <div className="inbox" data-view={selected ? "detail" : "list"}>
+    <div className="inbox" data-view={pending && pending.length === 0 ? "empty" : selected ? "detail" : "list"}>
       <section className="list-col" aria-label={t("inbox.title")}>
         <div className="list-head">
           <h1>{t("inbox.title")}</h1>

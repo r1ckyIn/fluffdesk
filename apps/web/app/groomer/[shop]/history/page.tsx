@@ -40,7 +40,7 @@ function History() {
   }, [session, signOut]);
 
   return (
-    <div className="inbox" data-view={selected ? "detail" : "list"}>
+    <div className="inbox" data-view={items && items.length === 0 ? "empty" : selected ? "detail" : "list"}>
       <section className="list-col" aria-label={t("history.title")}>
         <div className="list-head">
           <h1>{t("history.title")}</h1>

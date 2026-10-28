@@ -65,7 +65,7 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
       )}
       <header className="detail-head">
         <div>
-          <h1>{booking.customer.name}{petLine ? ` · ${petLine}` : ""}</h1>
+          <h2 className="detail-title">{booking.customer.name}{petLine ? ` · ${petLine}` : ""}</h2>
           <div className="sub">
             <StatusPill status={booking.status} />
             {booking.pet.breedGuess ? <span>{booking.pet.breedGuess}</span> : null}
