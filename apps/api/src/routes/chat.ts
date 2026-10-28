@@ -40,7 +40,7 @@ chatRoutes.post("/:shop", async (c) => {
   if (!text && images.length === 0) return c.json({ error: "text or images required" }, 400);
   const channel = body.channel === "embed" ? "embed" : "web";
 
-  const shop = rt.shops.get(c.req.param("shop"));
+  const shop = await rt.shops.get(c.req.param("shop"));
   if (!shop) return c.json({ error: "unknown shop" }, 404);
 
   const result = await handleInbound(rt, { shopSlug: shop.slug, channel, externalId: body.sessionId, input: { text: text || undefined, images } });

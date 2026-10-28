@@ -29,7 +29,7 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
   });
 
   routes.use("/:shop/*", async (c, next) => {
-    if (!c.get("rt").shops.get(c.req.param("shop"))) return c.json({ error: "not found" }, 404);
+    if (!(await c.get("rt").shops.get(c.req.param("shop")))) return c.json({ error: "not found" }, 404);
     await next();
   });
 
@@ -77,15 +77,13 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
       by: body.by,
       createdAt: new Date().toISOString(),
     };
-    rt.corrections.push(correction);
-    if (rt.corrections.length > MAX_CORRECTIONS) rt.corrections.splice(0, rt.corrections.length - MAX_CORRECTIONS);
+    await rt.corrections.add(correction);
     return c.json({ correction }, 201);
   });
 
-  routes.get("/:shop/shop", (c) => c.json({ shop: c.get("rt").shops.get(c.req.param("shop")) }));
+  routes.get("/:shop/shop", async (c) => c.json({ shop: await c.get("rt").shops.get(c.req.param("shop")) }));
 
   return routes;
 }
 
-const MAX_CORRECTIONS = 5000;
 const CORRECTION_KINDS = new Set<Correction["kind"]>(["pet_identification", "quote", "reply"]);
