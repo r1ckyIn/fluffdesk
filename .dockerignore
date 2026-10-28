@@ -5,7 +5,6 @@ node_modules
 .git
 **/.env
 **/.env.*
-!**/.env.example
 imports
 packages/eval/runs
 packages/eval/datasets/shops/*.draft.json

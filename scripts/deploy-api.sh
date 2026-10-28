@@ -6,8 +6,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ $# -gt 0 ]; then echo "deploy:api 不接受参数（$*），要改部署方式改脚本" >&2; exit 2; fi
 source scripts/require-clean-main.sh
-# 数所有没销毁的机器，只排除 release_command 的临时机器：手工 clone 出来没带进程组标签的也算，它一样会接流量
-machines=$(flyctl machines list -a fluffdesk-api --json | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).filter(m => m.state !== "destroyed" && m.config?.metadata?.fly_process_group !== "fly_app_release_command").length')
-case "$machines" in ''|*[!0-9]*) echo "解析不了机器数：'$machines'" >&2; exit 2;; esac
-if [ "$machines" -gt 1 ]; then echo "fluffdesk-api 的 app 组现在有 $machines 台机器，先 flyctl scale count 1 -a fluffdesk-api 缩回 1 台" >&2; exit 2; fi
+# 数所有没销毁的机器，只排除 release_command 和 fly console 的临时机器：手工 clone 出来没带进程组标签的也算，它一样会接流量
+live=$(flyctl machines list -a fluffdesk-api --json | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).filter(m => m.state !== "destroyed" && !["fly_app_release_command","fly_app_console"].includes(m.config?.metadata?.fly_process_group)).map(m => m.id + "(" + (m.config?.metadata?.fly_process_group ?? "无进程组") + ")").join(" ")')
+machines=$(echo "$live" | wc -w)
+if [ "$machines" -gt 1 ]; then echo "fluffdesk-api 有 $machines 台会接流量的机器：$live。只能留 1 台，多的用 flyctl machine destroy <id> -a fluffdesk-api 删掉" >&2; exit 2; fi
 exec flyctl deploy -a fluffdesk-api -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only --ha=false
