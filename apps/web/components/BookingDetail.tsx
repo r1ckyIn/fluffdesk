@@ -27,10 +27,9 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
   const [photos, setPhotos] = useState<string[]>([]);
   const readOnly = booking.status !== "pending";
 
+  // 当天安排是确认前的冲突检查，拿不到就不许确认；重试只重拉这一项
+  const [dayTry, setDayTry] = useState(0);
   useEffect(() => {
-    setDeclining(false);
-    setFlash(null);
-    setPhotos([]);
     let alive = true;
     setConfirmed(null);
     api
@@ -41,11 +40,21 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
         setConfirmed("error");
         reportError(e);
       });
+    return () => {
+      alive = false;
+    };
+  }, [session, booking.id, booking.start, reportError, dayTry]);
+
+  useEffect(() => {
+    setDeclining(false);
+    setFlash(null);
+    setPhotos([]);
+    let alive = true;
     api.corrections(session).then((all) => alive && setCorrections(all.filter((c) => c.conversationId === booking.conversationId))).catch(() => {});
     return () => {
       alive = false;
     };
-  }, [session, booking.id, booking.conversationId, booking.start, reportError]);
+  }, [session, booking.id, booking.conversationId]);
 
   async function decide(status: "confirmed" | "declined", reason?: string, alternatives?: string[]) {
     if (busy) return;
@@ -88,7 +97,7 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
         {!readOnly && !declining && (
           <div className="actions">
             <button type="button" className="btn btn-outline" disabled={busy} onClick={() => setDeclining(true)}>{t("action.decline")}</button>
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => decide("confirmed")}>{busy ? t("action.confirming") : t("action.confirm")}</button>
+            <button type="button" className="btn btn-primary" disabled={busy || !Array.isArray(confirmed)} onClick={() => decide("confirmed")}>{busy ? t("action.confirming") : t("action.confirm")}</button>
           </div>
         )}
       </header>
@@ -139,7 +148,15 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
 
       <section className="section">
         <h2>{t("detail.day")}</h2>
-        {confirmed === "error" ? <p className="notice notice-bad">{t("detail.dayError")}</p> : confirmed === null ? <p className="muted">{t("chat.loading")}</p> : <DayStrip booking={booking} confirmed={confirmed} shop={shop} />}
+        {confirmed === "error" ? (
+          <p className="notice notice-bad">
+            {t("detail.dayError")} <button type="button" className="btn btn-quiet" onClick={() => setDayTry((n) => n + 1)}>{t("error.retry")}</button>
+          </p>
+        ) : confirmed === null ? (
+          <p className="muted">{t("detail.dayLoading")}</p>
+        ) : (
+          <DayStrip booking={booking} confirmed={confirmed} shop={shop} />
+        )}
       </section>
 
       <section className="section">

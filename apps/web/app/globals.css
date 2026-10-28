@@ -221,5 +221,5 @@ a { color: inherit; text-decoration: none; }
   .msg { max-width: 92%; }
 }
 
-/* 详情头部的 meta：点号和它后面的值一起换行，不让新一行以点开头 */
+/* 详情头部的 meta：点号跟在前一个值后面且不拆开，换行只会发生在点号之后，新一行永远以值开头 */
 .detail-head .sub .dotted { white-space: nowrap; }

@@ -59,7 +59,8 @@ export class InMemoryBookingStore implements BookingStore {
   async listByStatus(shopSlug: string, statuses: BookingStatus[], limit = 100) {
     return [...this.items.values()]
       .filter((b) => b.shopSlug === shopSlug && statuses.includes(b.status))
-      .sort((a, b) => (b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt))
+      // 和 Postgres 版同一个次序：决定时间倒序，平手按创建时间倒序
+      .sort((a, b) => (b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt) || b.createdAt.localeCompare(a.createdAt))
       .slice(0, limit);
   }
   async listConfirmedOn(shopSlug: string, date: string) {

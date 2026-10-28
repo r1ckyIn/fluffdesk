@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BookingDetail } from "@/components/BookingDetail";
 import { BookingList } from "@/components/BookingList";
@@ -29,23 +29,27 @@ function History() {
   const selected = items?.find((b) => b.id === selectedId) ?? null;
   const select = (id: string | null) => router.replace(id ? `${pathname}?b=${encodeURIComponent(id)}` : pathname, { scroll: false });
 
+  // 每次拉取编号，只有最新一次的结果算数：重试连点两下、或者切页之后迟到的响应都不会盖掉新的
+  const seq = useRef(0);
   const load = useCallback(() => {
-    let alive = true;
+    const mine = ++seq.current;
     setFailed(false);
     api
       .bookings(session, "decided")
-      .then((x) => alive && setItems(x))
+      .then((x) => mine === seq.current && setItems(x))
       // 失败留在页面自己的错误态上，带重试；布局的横幅会被 30 秒的轮询清掉，不能只靠它。空列表只能来自真正的空结果
       .catch((e) => {
-        if (!alive) return;
+        if (mine !== seq.current) return;
         setFailed(true);
         reportError(e);
       });
-    return () => {
-      alive = false;
-    };
   }, [session, reportError]);
-  useEffect(() => load(), [load]);
+  useEffect(() => {
+    load();
+    return () => {
+      seq.current++; // 卸载后迟到的响应作废
+    };
+  }, [load]);
 
   return (
     <div className="inbox" data-view={items && items.length === 0 ? "empty" : selected ? "detail" : "list"}>

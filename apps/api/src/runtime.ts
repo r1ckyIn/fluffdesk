@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  createGateway, defaultTools, consoleTraceSink, parseShopConfig, bookingSlot,
+  createGateway, defaultTools, consoleTraceSink, validateShopConfig, bookingSlot,
   InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, Tracer,
   type BookingStore, type ConversationStore, type CorrectionStore, type Gateway, type ShopConfig, type ShopEditor, type ShopRepo, type TraceSink,
 } from "@fluffdesk/core";
@@ -95,7 +95,7 @@ function memoryPersistence(): Persistence {
   const here = dirname(fileURLToPath(import.meta.url));
   const raw = JSON.parse(readFileSync(resolve(here, "../../../packages/eval/datasets/shops.json"), "utf8")) as Record<string, unknown>;
   return {
-    shops: new InMemoryShopRepo(Object.values(raw).map(parseShopConfig)),
+    shops: new InMemoryShopRepo(Object.values(raw).map(validateShopConfig)),
     conversations: new MemoryConversationStore(),
     bookings: new InMemoryBookingStore(),
     corrections: new MemoryCorrectionStore(),

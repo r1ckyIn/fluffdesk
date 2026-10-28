@@ -93,9 +93,14 @@ describe("PgShopRepo", () => {
     expect(await shops.save(shopConfig("ghost"))).toBe(false);
     expect((await shops.list()).map((s) => s.slug)).not.toContain("ghost");
   });
-  it("rejects a config that fails the core schema", async () => {
+  it("rejects a config that fails the core schema or its reference checks", async () => {
     await expect(shops.upsert({ slug: "bad" }, { approved: true })).rejects.toThrow();
     expect(await shops.get("bad")).toBeUndefined();
+    const dup = shopConfig("dup");
+    await expect(shops.upsert({ ...dup, services: [...dup.services, { ...dup.services[0]! }] }, { approved: true })).rejects.toThrow(/duplicate id/);
+    expect(await shops.get("dup")).toBeUndefined();
+    const s1 = shopConfig("s1");
+    await expect(shops.save({ ...s1, services: [{ ...s1.services[0]!, prices: [{ ...s1.services[0]!.prices[0]!, size: "giant" }] }] })).rejects.toThrow(/unknown size tier/);
   });
 });
 
