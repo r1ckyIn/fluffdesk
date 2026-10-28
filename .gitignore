@@ -9,3 +9,6 @@ dist/
 packages/eval/runs/
 packages/eval/datasets/shops/*.draft.json
 imports/
+
+# tasteskill 工作文件（截图、direction sheet）
+.taste-skill/

@@ -1,0 +1,11 @@
+{
+  "name": "@fluffdesk/design",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "fluffdesk 设计系统正本：project/ 是 Design System 目录格式（tokens.json、README、组件预览），dist/tokens.css 由 tokens.json 生成",
+  "scripts": {
+    "build": "node scripts/tokens-to-css.mjs && node scripts/build-bundle.mjs",
+    "check": "node scripts/tokens-to-css.mjs --check"
+  }
+}

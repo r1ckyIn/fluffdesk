@@ -10,7 +10,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "typecheck": "tsc -b packages/core packages/db packages/eval apps/api && tsc -p apps/api/tsconfig.test.json && tsc -p packages/db/tsconfig.test.json",
+    "typecheck": "tsc -b packages/core packages/db packages/eval apps/api && tsc -p apps/api/tsconfig.test.json && tsc -p packages/db/tsconfig.test.json && tsc -p apps/web/tsconfig.json --noEmit",
+    "design:build": "node packages/design/scripts/tokens-to-css.mjs",
+    "design:check": "node packages/design/scripts/tokens-to-css.mjs --check",
     "test": "vitest run",
     "dev:api": "npm run dev -w apps/api",
     "dev:web": "npm run dev -w apps/web",

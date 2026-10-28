@@ -1,23 +1,24 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, sql } from "drizzle-orm";
-import { BookingStateError, type Booking, type BookingStore } from "@fluffdesk/core";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { BookingStateError, decidedFields, type Booking, type BookingStatus, type BookingStore, type Decision } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { bookings } from "../schema.js";
 
 type Row = typeof bookings.$inferSelect;
 
-/** 预约存储的 Postgres 实现。状态机的落点在 decide：条件写在 SQL 里，两个人同时点只有一个成功 */
+/** 预约存储的 Postgres 实现。状态机的落点在 decide：条件写在 SQL 里，两个人同时点只有一个成功。id 和时钟可注入，和内存版一样 */
 export class PgBookingStore implements BookingStore {
   constructor(
     private readonly db: Db,
     private readonly newId: () => string = () => `bk_${randomUUID()}`,
+    private readonly now: () => Date = () => new Date(),
   ) {}
 
   /** 同会话、同服务、同时段撞上部分唯一索引就回已有的那条，两个实例同时插也只会有一条 */
   async createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking> {
     const [row] = await this.db
       .insert(bookings)
-      .values({ id: this.newId(), status: "pending", ...toColumns(input) })
+      .values({ id: this.newId(), status: "pending", createdAt: this.now(), ...toColumns(input) })
       .onConflictDoNothing({ target: [bookings.conversationId, bookings.serviceId, bookings.start], where: sql`${bookings.status} = 'pending'` })
       .returning();
     if (row) return toBooking(row);
@@ -58,6 +59,28 @@ export class PgBookingStore implements BookingStore {
     return rows.map(toBooking);
   }
 
+  async listByStatus(shopSlug: string, statuses: BookingStatus[], limit = 100): Promise<Booking[]> {
+    if (statuses.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.shopSlug, shopSlug), inArray(bookings.status, statuses)))
+      // 同一毫秒决定的两条按创建时间再排一次，顺序才稳定
+      .orderBy(desc(sql`coalesce(${bookings.decidedAt}, ${bookings.createdAt})`), desc(bookings.createdAt))
+      .limit(limit);
+    return rows.map(toBooking);
+  }
+
+  /** 某天已确认的预约：按 start 的日期前缀查，不设上限。start 是店铺本地时间字符串，前缀比较就是按天 */
+  async listConfirmedOn(shopSlug: string, date: string): Promise<Booking[]> {
+    const rows = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.shopSlug, shopSlug), eq(bookings.status, "confirmed"), like(bookings.start, `${date}T%`)))
+      .orderBy(asc(bookings.start));
+    return rows.map(toBooking);
+  }
+
   async listPendingForConversation(conversationId: string): Promise<Booking[]> {
     const rows = await this.db
       .select()
@@ -67,10 +90,10 @@ export class PgBookingStore implements BookingStore {
     return rows.map(toBooking);
   }
 
-  async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking> {
+  async decide(id: string, decision: Decision): Promise<Booking> {
     const [row] = await this.db
       .update(bookings)
-      .set({ status: decision.status, decidedAt: new Date(), decidedBy: decision.by, declineReason: decision.reason ?? null })
+      .set({ status: decision.status, decidedAt: this.now(), decidedBy: decision.by, declineReason: decision.reason ?? null, alternatives: decidedFields(decision).alternatives ?? null })
       .where(and(eq(bookings.id, id), eq(bookings.status, "pending")))
       .returning();
     if (row) return toBooking(row);
@@ -112,5 +135,6 @@ function toBooking(row: Row): Booking {
   if (row.decidedAt) b.decidedAt = row.decidedAt.toISOString();
   if (row.decidedBy) b.decidedBy = row.decidedBy;
   if (row.declineReason) b.declineReason = row.declineReason;
+  if (row.alternatives?.length) b.alternatives = row.alternatives;
   return b;
 }

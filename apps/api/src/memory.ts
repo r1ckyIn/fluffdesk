@@ -23,6 +23,10 @@ export class MemoryConversationStore implements ConversationStore {
   async save(conv: Conversation): Promise<void> {
     this.store.set(conv.id, conv);
   }
+  /** 内存版的 id 就是 key */
+  async get(id: string): Promise<Conversation | undefined> {
+    return this.store.get(id);
+  }
 }
 
 export class MemoryCorrectionStore implements CorrectionStore {

@@ -40,7 +40,7 @@ beforeAll(async () => {
   db = pg;
   shops = new PgShopRepo(db);
   conversations = new PgConversationStore(db);
-  bookings = new PgBookingStore(db);
+  bookings = new PgBookingStore(db, undefined, ticking());
 }, 60_000);
 
 // 每条用例从空表开始：PGlite 一个连接，存储自己有事务，不能再套一层外部事务回滚，所以用 truncate
@@ -49,6 +49,12 @@ beforeEach(async () => {
   await shops.upsert(shopConfig("s1"), { approved: true });
   await shops.upsert(shopConfig("s2"), { approved: true });
 });
+
+/** 可控时钟：每调一次往后走一秒。两次 decide 落在同一毫秒时 decided_at 会平手，排序就不稳定 */
+const ticking = () => {
+  let t = Date.parse("2026-10-28T00:00:00Z");
+  return () => new Date((t += 1000));
+};
 
 const pendingInput = (conv: Conversation, shopSlug = conv.shopSlug) => ({
   shopSlug,
@@ -78,9 +84,23 @@ describe("PgShopRepo", () => {
     expect(again.written).toBe(true);
     expect((await shops.get("live"))?.name).toBe("Edited by groomer");
   });
-  it("rejects a config that fails the core schema", async () => {
+  it("save edits an approved shop in place and never touches drafts or unknown slugs", async () => {
+    await shops.upsert(shopConfig("draft"), { approved: false });
+    expect(await shops.save({ ...shopConfig("s1"), name: "Renamed" })).toBe(true);
+    expect((await shops.get("s1"))?.name).toBe("Renamed");
+    expect(await shops.save({ ...shopConfig("draft"), name: "Sneaky" })).toBe(false);
+    expect(await shops.get("draft")).toBeUndefined();
+    expect(await shops.save(shopConfig("ghost"))).toBe(false);
+    expect((await shops.list()).map((s) => s.slug)).not.toContain("ghost");
+  });
+  it("rejects a config that fails the core schema or its reference checks", async () => {
     await expect(shops.upsert({ slug: "bad" }, { approved: true })).rejects.toThrow();
     expect(await shops.get("bad")).toBeUndefined();
+    const dup = shopConfig("dup");
+    await expect(shops.upsert({ ...dup, services: [...dup.services, { ...dup.services[0]! }] }, { approved: true })).rejects.toThrow(/duplicate id/);
+    expect(await shops.get("dup")).toBeUndefined();
+    const s1 = shopConfig("s1");
+    await expect(shops.save({ ...s1, services: [{ ...s1.services[0]!, prices: [{ ...s1.services[0]!.prices[0]!, size: "giant" }] }] })).rejects.toThrow(/unknown size tier/);
   });
 });
 
@@ -115,6 +135,15 @@ describe("PgConversationStore", () => {
     expect(fresh.images.get("img_2")).toEqual({ data: "BBBB", mimeType: "image/jpeg" });
     const [row] = await db.select({ n: count() }).from(schema.conversationImages).where(eq(schema.conversationImages.conversationId, conv.id));
     expect(row?.n).toBe(2);
+  });
+  it("get by id returns the conversation with its images, or nothing", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "by-id" }, "zh");
+    conv.images.set("img_1", { data: "AAAA", mimeType: "image/png" });
+    await conversations.save(conv);
+    const got = await new PgConversationStore(db).get(conv.id);
+    expect(got).toMatchObject({ id: conv.id, shopSlug: "s1", locale: "zh" });
+    expect(got?.images.get("img_1")).toEqual({ data: "AAAA", mimeType: "image/png" });
+    expect(await conversations.get("cv_missing")).toBeUndefined();
   });
   it("expires images of idle conversations but keeps the text history", async () => {
     const idleKey = { shopSlug: "s1", channel: "web", externalId: "idle" };
@@ -155,6 +184,19 @@ describe("PgBookingStore", () => {
     expect((await bookings.listPendingForConversation(conv.id)).map((x) => x.id)).toEqual([b.id]);
     expect(await bookings.listPendingForConversation(other.id)).toHaveLength(1);
   });
+  it("lists a day's confirmed bookings by start, ignoring other days, pending and declined ones", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-day" }, "en");
+    const at = (start: string) => ({ ...pendingInput(conv), start });
+    const late = await bookings.createPending(at("2026-11-05T14:00"));
+    const early = await bookings.createPending(at("2026-11-05T09:00"));
+    const other = await bookings.createPending(at("2026-11-06T09:00"));
+    const declined = await bookings.createPending(at("2026-11-05T10:00"));
+    await bookings.createPending(at("2026-11-05T11:00")); // pending
+    for (const b of [late, early, other]) await bookings.decide(b.id, { status: "confirmed", by: "g" });
+    await bookings.decide(declined.id, { status: "declined", by: "g" });
+    expect((await bookings.listConfirmedOn("s1", "2026-11-05")).map((b) => b.id)).toEqual([early.id, late.id]);
+    expect(await bookings.listConfirmedOn("s2", "2026-11-05")).toEqual([]);
+  });
   it("only a pending booking can be decided, and only once", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-decide" }, "en");
     const b = await bookings.createPending(pendingInput(conv));
@@ -180,6 +222,37 @@ describe("PgBookingStore", () => {
     // 决定过的不占槽位：同时段可以再挂一条新的待确认
     const again = await bookings.createPending(pendingInput(conv));
     expect(again.id).not.toBe(a.id);
+  });
+  it("alternatives are stored with a decline only, and the history lists a shop's decided bookings newest first", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-alt" }, "en");
+    const other = await conversations.findOrCreate({ shopSlug: "s2", channel: "web", externalId: "bk-alt" }, "en");
+    const a = await bookings.createPending(pendingInput(conv));
+    const b = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-03T11:00" });
+    const c = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-03T12:00" });
+    await bookings.createPending(pendingInput(other));
+    const confirmed = await bookings.decide(a.id, { status: "confirmed", by: "g", alternatives: ["2026-11-04T10:00"] } as never);
+    expect(confirmed.alternatives).toBeUndefined();
+    const declined = await bookings.decide(b.id, { status: "declined", by: "g", alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
+    expect(declined.alternatives).toEqual(["2026-11-04T10:00", "2026-11-04T11:00"]);
+    expect((await bookings.get(b.id))?.alternatives).toEqual(["2026-11-04T10:00", "2026-11-04T11:00"]);
+    const history = await bookings.listByStatus("s1", ["confirmed", "declined"]);
+    expect(history.map((x) => x.id)).toEqual([b.id, a.id]);
+    expect(await bookings.listByStatus("s1", ["pending"])).toHaveLength(1);
+    expect((await bookings.listByStatus("s1", ["pending"]))[0]?.id).toBe(c.id);
+    expect(await bookings.listByStatus("s1", ["confirmed", "declined"], 1)).toHaveLength(1);
+    expect(await bookings.listByStatus("s2", ["confirmed", "declined"])).toHaveLength(0);
+  });
+  it("same-instant decisions list newest-created first, like the in-memory store", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-tie" }, "en");
+    const frozen = new Date("2026-10-29T00:00:00Z");
+    const store = new PgBookingStore(db, undefined, () => frozen);
+    const older = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-07T09:00" });
+    const newer = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-07T10:00" });
+    await store.decide(older.id, { status: "confirmed", by: "g" });
+    await store.decide(newer.id, { status: "declined", by: "g" });
+    const ids = (await bookings.listByStatus("s1", ["confirmed", "declined"])).map((b) => b.id);
+    expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
+    expect(ids.indexOf(older.id)).toBe(ids.indexOf(newer.id) + 1);
   });
   it("two groomers deciding at once: exactly one wins", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-race" }, "en");

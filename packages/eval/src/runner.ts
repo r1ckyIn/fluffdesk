@@ -2,7 +2,7 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  createGateway, defaultTools, newConversation, runTurn, InMemoryBookingStore, InMemoryCalendar, parseShopConfig,
+  createGateway, defaultTools, newConversation, runTurn, InMemoryBookingStore, InMemoryCalendar, validateShopConfig,
   recordingGateway, replayGateway, type Gateway, type Recording, type ShopConfig, type TurnResult,
 } from "@fluffdesk/core";
 import { gradeDeterministic, type Check, type Expectation } from "./graders/deterministic.js";
@@ -35,7 +35,7 @@ export function loadDataset(name: string): Case[] {
 
 export function loadShops(): Record<string, ShopConfig> {
   const raw = JSON.parse(readFileSync(resolve(EVAL_ROOT, "datasets/shops.json"), "utf8")) as Record<string, unknown>;
-  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, parseShopConfig(v)]));
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, validateShopConfig(v)]));
 }
 
 export function recordingPath(dataset: string, caseId: string): string {

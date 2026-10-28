@@ -1,0 +1,213 @@
+"use client";
+import { useEffect, useRef, useState } from "react";
+import { api, ApiError } from "@/lib/api";
+import { useGroomer } from "@/lib/groomer-context";
+import { useLocale } from "@/lib/i18n";
+import type { Booking, Correction } from "@/lib/types";
+import { DASH, fmtAgo, fmtRange, fmtWhen, serviceName, tierLabel } from "@/lib/format";
+import { CorrectionForms } from "./CorrectionForms";
+import { DayStrip } from "./DayStrip";
+import { DeclinePanel } from "./DeclinePanel";
+import { StatusPill } from "./StatusPill";
+import { Transcript } from "./Transcript";
+
+/**
+ * 打开的那一条。顺序按美容师的问题排：这是谁和什么狗 → 要什么、什么时候、报了多少 → 那天撞不撞 →
+ * 决定 → 需要的话纠正 agent → 看原始对话。一屏里只有一个主按钮（确认）。
+ */
+export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking; onDecided?: (b: Booking) => void; onBack?: () => void }) {
+  const { session, shop, notify, reportError } = useGroomer();
+  const { t, locale } = useLocale();
+  const [declining, setDeclining] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [flash, setFlash] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+  // null = 还没拿到；"error" = 拿失败了。失败不能画成"那天没冲突"，这条信息直接影响要不要确认
+  const [confirmed, setConfirmed] = useState<Booking[] | null | "error">(null);
+  // null = 还没拿到；"error" = 拿失败了。失败不能画成"还没纠正过"，不然会重复提交同一条修正
+  const [corrections, setCorrections] = useState<Correction[] | null | "error">(null);
+  const [correctionsTry, setCorrectionsTry] = useState(0);
+  // 正在看的会话：保存修正的回调可能在换了预约之后才回来，那时它带的是上一条的会话，要丢掉
+  const currentConversation = useRef(booking.conversationId);
+  useEffect(() => {
+    currentConversation.current = booking.conversationId;
+  }, [booking.conversationId]);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const readOnly = booking.status !== "pending";
+
+  // 当天安排是确认前的冲突检查，拿不到就不许确认；重试只重拉这一项
+  const [dayTry, setDayTry] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    setConfirmed(null);
+    api
+      .confirmedOn(session, booking.start.slice(0, 10))
+      .then((all) => alive && setConfirmed(all))
+      .catch((e) => {
+        if (!alive) return;
+        setConfirmed("error");
+        if (e instanceof ApiError && e.status === 401) reportError(e); // 这一节自己显示错误，只有 401 要交给布局退出
+      });
+    return () => {
+      alive = false;
+    };
+  }, [session, booking.id, booking.start, reportError, dayTry]);
+
+  // 换了一条：收起拒绝面板、清提示和照片。只跟着 booking.id 走，重试别的区块不会碰到这里
+  useEffect(() => {
+    setDeclining(false);
+    setFlash(null);
+    setPhotos([]);
+  }, [booking.id]);
+
+  // 这段会话之前的修正：拿到之前不显示表单。服务端已按会话过滤，再过一遍是给 web 先于 api 发版时兜底
+  useEffect(() => {
+    let alive = true;
+    setCorrections(null);
+    api
+      .corrections(session, booking.conversationId)
+      .then((mine) => alive && setCorrections(mine.filter((c) => c.conversationId === booking.conversationId)))
+      .catch((e) => {
+        if (!alive) return;
+        setCorrections("error");
+        if (e instanceof ApiError && e.status === 401) reportError(e);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [session, booking.conversationId, reportError, correctionsTry]);
+
+  async function decide(status: "confirmed" | "declined", reason?: string, alternatives?: string[]) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const b = await api.decide(session, booking.id, { status, reason: reason || undefined, alternatives: alternatives?.length ? alternatives : undefined });
+      // 成功提示交给布局：onDecided 会把这条从队列拿掉，这个组件随之卸载，自己的 flash 没机会显示
+      notify(t(status === "confirmed" ? "action.confirmed" : "action.declined"));
+      setDeclining(false);
+      onDecided?.(b);
+    } catch (e) {
+      setFlash({ kind: "bad", text: e instanceof ApiError && e.status === 409 ? t("action.gone") : t("error.generic") });
+      if (e instanceof ApiError && e.status === 409) onDecided?.({ ...booking, status: "cancelled" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 标题最多两行：人名 + 宠物名；品种放到副标题里
+  const petLine = booking.pet.name ?? "";
+  const known = Array.isArray(corrections) ? corrections : [];
+  const done = { pet: known.some((c) => c.kind === "pet_identification"), quote: known.some((c) => c.kind === "quote") };
+
+  return (
+    <article className="enter" key={booking.id}>
+      {onBack && (
+        <button type="button" className="btn btn-quiet back-link" onClick={onBack} style={{ marginLeft: -8, marginBottom: "var(--space-3)" }}>‹ {t("list.back")}</button>
+      )}
+      <header className="detail-head">
+        <div>
+          <h2 className="detail-title">{booking.customer.name}{petLine ? ` · ${petLine}` : ""}</h2>
+          <div className="sub">
+            <StatusPill status={booking.status} />
+            {/* 点号跟在前一个值后面且不拆行：换行只会发生在点号之后，新一行永远以值开头 */}
+            {booking.pet.breedGuess ? <span className="dotted">{booking.pet.breedGuess}<span aria-hidden="true"> ·</span></span> : null}
+            <span className="dotted">{serviceName(shop, booking.serviceId, locale)}<span aria-hidden="true"> ·</span></span>
+            <span className="dotted num">{fmtWhen(booking.start, locale)}<span aria-hidden="true"> ·</span></span>
+            <span className="num">{fmtRange(booking.quote)}</span>
+          </div>
+        </div>
+        {!readOnly && !declining && (
+          <div className="actions">
+            <button type="button" className="btn btn-outline" disabled={busy} onClick={() => setDeclining(true)}>{t("action.decline")}</button>
+            <button type="button" className="btn btn-primary" disabled={busy || !Array.isArray(confirmed)} onClick={() => decide("confirmed")}>{busy ? t("action.confirming") : t("action.confirm")}</button>
+          </div>
+        )}
+      </header>
+
+      {flash && <div className={`notice notice-${flash.kind}`} role="status" style={{ marginBottom: "var(--space-4)" }}>{flash.text}</div>}
+      {declining && <DeclinePanel booking={booking} busy={busy} onCancel={() => setDeclining(false)} onSubmit={(reason, alts) => decide("declined", reason, alts)} />}
+
+      {photos.length > 0 && (
+        <div className="pet-photos" style={{ marginTop: "var(--space-4)" }}>
+          {photos.map((u) => <img key={u} src={u} alt={t("chat.photo")} />)}
+        </div>
+      )}
+
+      <div className="two-col section">
+        <div>
+          <h2 style={{ font: "var(--type-section)", marginBottom: "var(--space-3)" }}>{t("detail.customer")}</h2>
+          <dl className="kv">
+            <dt>{t("detail.customer")}</dt><dd>{booking.customer.name}</dd>
+            <dt>{t("detail.contact")}</dt><dd className="num">{booking.customer.contact}</dd>
+            <dt>{t("detail.channel")}</dt><dd><span className="pill pill-neutral">{booking.customer.channel}</span></dd>
+            <dt>{t("detail.requested")}</dt><dd>{fmtAgo(booking.createdAt, locale)}</dd>
+          </dl>
+        </div>
+        <div>
+          <h2 style={{ font: "var(--type-section)", marginBottom: "var(--space-3)" }}>{t("detail.pet")}</h2>
+          <dl className="kv">
+            <dt>{t("detail.pet")}</dt><dd>{booking.pet.name || DASH} <span className="muted">{booking.pet.species === "cat" ? t("correct.cat") : booking.pet.species === "dog" ? t("correct.dog") : t("correct.other")}</span></dd>
+            <dt>{t("detail.breed")}</dt><dd>{booking.pet.breedGuess || DASH}</dd>
+            <dt>{t("detail.size")}</dt><dd>{tierLabel(shop, booking.pet.sizeTier, locale) || DASH}{booking.pet.weightKg ? <span className="muted num"> · {booking.pet.weightKg} {t("detail.kg")}</span> : null}</dd>
+            <dt>{t("detail.coat")}</dt><dd>{booking.pet.coat ? t(`coat.${booking.pet.coat}` as "coat.short") : DASH}</dd>
+            {booking.pet.notes ? (<><dt>{t("detail.notes")}</dt><dd className="text">{booking.pet.notes}</dd></>) : null}
+          </dl>
+        </div>
+      </div>
+
+      <section className="section">
+        <h2>{t("detail.service")}</h2>
+        <dl className="kv">
+          <dt>{t("detail.service")}</dt><dd>{serviceName(shop, booking.serviceId, locale)}</dd>
+          <dt>{t("detail.when")}</dt><dd className="num">{fmtWhen(booking.start, locale)}</dd>
+          <dt>{t("detail.duration")}</dt><dd className="num">{booking.durationMin} {t("detail.min")}</dd>
+          <dt>{t("detail.quote")}</dt><dd className="num">{fmtRange(booking.quote)} <span className="muted">· {shop.policies.quoteDisclaimer[locale]}</span></dd>
+          {readOnly && booking.decidedBy ? (<><dt>{t("detail.decidedBy")}</dt><dd>{booking.decidedBy} <span className="muted">· {booking.decidedAt ? fmtAgo(booking.decidedAt, locale) : ""}</span></dd></>) : null}
+          {booking.declineReason ? (<><dt>{t("detail.reason")}</dt><dd className="text">{booking.declineReason}</dd></>) : null}
+          {booking.alternatives?.length ? (<><dt>{t("detail.alternatives")}</dt><dd className="num">{booking.alternatives.map((a) => fmtWhen(a, locale)).join(" · ")}</dd></>) : null}
+        </dl>
+      </section>
+
+      <section className="section">
+        <h2>{t("detail.day")}</h2>
+        {confirmed === "error" ? (
+          <p className="notice notice-bad">
+            {t("detail.dayError")} <button type="button" className="btn btn-quiet" onClick={() => setDayTry((n) => n + 1)}>{t("error.retry")}</button>
+          </p>
+        ) : confirmed === null ? (
+          <p className="muted">{t("detail.dayLoading")}</p>
+        ) : (
+          <DayStrip booking={booking} confirmed={confirmed} shop={shop} />
+        )}
+      </section>
+
+      <section className="section">
+        <h2>{t("correct.pet")} / {t("correct.quote")}</h2>
+        {corrections === "error" ? (
+          <p className="notice notice-bad">
+            {t("correct.loadError")} <button type="button" className="btn btn-quiet" onClick={() => setCorrectionsTry((n) => n + 1)}>{t("error.retry")}</button>
+          </p>
+        ) : corrections === null ? (
+          <p className="muted">{t("correct.loading")}</p>
+        ) : (
+          <CorrectionForms
+            booking={booking}
+            done={done}
+            onDone={(kind) => {
+              const conversationId = booking.conversationId;
+              setCorrections((c) => {
+                // 已经切到别的预约、或列表正在重拉：这次回调不属于当前列表，原样返回
+                if (conversationId !== currentConversation.current || !Array.isArray(c)) return c;
+                return [...c, { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }];
+              });
+            }}
+          />
+        )}
+      </section>
+
+      <section className="section">
+        <h2>{t("chat.title")}</h2>
+        <Transcript conversationId={booking.conversationId} onImages={setPhotos} />
+      </section>
+    </article>
+  );
+}

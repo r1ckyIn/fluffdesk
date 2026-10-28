@@ -30,6 +30,16 @@ export interface Booking {
   decidedAt?: string;
   decidedBy?: string;
   declineReason?: string;
+  /** 拒绝时给客人的替代时段（店铺时区，YYYY-MM-DDTHH:MM），最多 3 个；只有 declined 才有 */
+  alternatives?: string[];
+}
+
+/** 美容师的决定。只有这两种状态能由人改出来；cancelled 留给以后的客人取消 */
+export interface Decision {
+  status: "confirmed" | "declined";
+  by: string;
+  reason?: string;
+  alternatives?: string[];
 }
 
 export interface Slot {

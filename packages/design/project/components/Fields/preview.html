@@ -1,0 +1,14 @@
+<!-- @dsCard group="Forms" height=140 subtitle="Input, select, textarea" width=560 -->
+<!doctype html>
+<html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body { background: var(--color-sheet); padding: 16px; margin: 0; }
+.stack { display: grid; gap: 12px; }
+.rowline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+</style></head><body>
+
+<div class="form-row" style="max-width: 560px;">
+  <label class="field"><span>Shop name</span><input class="input" value="Fluffy Paws Newtown"></label>
+  <label class="field"><span>Size tier</span><select class="select"><option>Small</option><option selected>Medium</option><option>Large</option></select></label>
+  <label class="field" style="grid-column: 1 / -1;"><span>Reason (the customer sees this)</span><textarea class="textarea" placeholder="Fully booked that morning"></textarea></label>
+</div>
+</body></html>

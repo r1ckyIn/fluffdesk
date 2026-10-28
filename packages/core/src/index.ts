@@ -9,6 +9,8 @@ export * from "./tools/registry.js";
 export * from "./tools/index.js";
 export * from "./booking/types.js";
 export * from "./booking/ports.js";
+export * from "./booking/decision.js";
+export * from "./agent/transcript.js";
 export * from "./trace/tracer.js";
 export * from "./corrections/types.js";
 export * from "./shop/repo.js";

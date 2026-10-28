@@ -67,13 +67,21 @@ export class PgConversationStore implements ConversationStore {
     return stale.length;
   }
 
+  async get(id: string): Promise<Conversation | undefined> {
+    const [row] = await this.db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+    return row ? this.hydrate(row) : undefined;
+  }
+
   private async load(key: ConversationKey): Promise<Conversation | undefined> {
     const [row] = await this.db
       .select()
       .from(conversations)
       .where(and(eq(conversations.shopSlug, key.shopSlug), eq(conversations.channel, key.channel), eq(conversations.externalId, key.externalId)))
       .limit(1);
-    if (!row) return undefined;
+    return row ? this.hydrate(row) : undefined;
+  }
+
+  private async hydrate(row: typeof conversations.$inferSelect): Promise<Conversation> {
     const imgs = await this.db
       .select({ imageId: conversationImages.imageId, mimeType: conversationImages.mimeType, data: conversationImages.data })
       .from(conversationImages)

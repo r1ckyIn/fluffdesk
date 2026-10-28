@@ -42,7 +42,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 
 ### 下一步的顺序（2026-10-28 定）
 1. ~~Fly 部署 api + Vercel 部署 web~~（2026-10-28 都已上线）
-2. 美容师端：待确认列表、一键确认/拒绝、magic link 登录换掉共享 token。没有这个 demo 给店主看不完整
+2. ~~美容师端：待确认列表、一键确认/拒绝~~（2026-10-28 做完，分支 chore/taste-skill）；magic link 登录换掉共享 token 还没做，等域名（fluffdesk.eirlys.ai）和 Resend 账号
 3. Instagram 和 WhatsApp 收发消息；Meta 应用审核要排队，和第 2 步并行提交
 4. PR 级 e2e（Neon 分支）：API key 和 NEON_PROJECT_ID 已在 GitHub，等冒烟脚本
 5. 模型评审和人工打分对齐：等有真客人对话再做，对着假数据对齐没意义
@@ -55,6 +55,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 第一家真实店铺（Fenny & Jacks）导入通过，分档价目和店家预约页一致
 - [ ] 预约页来源：Timely、Fresha 这类公开预约页，信息比官网准
 - [ ] 服务时长：来源没写时别用 60 分钟占位，标成缺失让人填
+- [ ] 合并时价目的 size 要落到选中的体型档上：抽取结果里的 `all` 之类要展开成每一档或记进 missing，不然 `validateShopConfig` 在 seed/upsert 时整店拒掉（Fenny & Jacks 草稿里 wash-dry 就是 size=all；chore/taste-skill 第 2 轮审查）
 - [ ] policies 抽取：取消政策、不接的品种、打结加价这些进 notes
 - [ ] 草稿确认流：美容师端看草稿、改字段、点确认后进 shops 表
 
@@ -63,8 +64,12 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 录制回放：eval 集 24 条用真模型录制，CI 回放
 - [ ] eval 集加真实客人案例（老板导出私信后）；一直全绿的用例降频
 - [ ] 模型评审和人工打分对齐（75% 以上），再启用 judge
-- [ ] 自建 `.claude/skills/test-review`：把 ADR 的"不做什么"做成 PR 前的 review 清单，守测试的写法（CI 只能守结果）
+- [x] 自建 `.claude/skills/test-review`（守测试写法）和 `.claude/skills/pr-review`（审查循环，ADR 0002）
 - [ ] 新加核心逻辑时同步往 `scripts/mutate.sh` 加变异，否则护栏没人验
+- [ ] PgBookingStore.createPending 现在用应用进程时钟写 created_at（为了测试可控），多实例时钟偏差会影响队列次序；改成只在注入了时钟时才写，生产用数据库默认值（chore/taste-skill 第 7 轮审查）
+- [ ] `GET /corrections?conversationId=` 现在是路由层在整店列表上过滤，`CorrectionStore.list` 加可选的 conversationId 让 Postgres 用 WHERE（chore/taste-skill 第 5 轮审查）
+- [ ] `packages/eval/datasets/shops.json` 的加载和校验在 `apps/api/src/runtime.ts`、`packages/eval/src/runner.ts`、`packages/db/src/seed.ts` 各写了一遍，收成一个共享的 loader（chore/taste-skill 第 4 轮审查）
+- [ ] 浏览器走查通过的关键流程（美容师端确认/拒绝、聊天页询价）改写成 Playwright e2e 放进 CI，Chrome 负责探索，Playwright 负责防回归
 - [ ] 改抽取或合并逻辑后，用 Fenny & Jacks 重跑当回归（七个服务、六档价目、营业时间周一到周六）
 
 ### agent 核心
@@ -80,10 +85,23 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp Cloud API：同上
 
 ### 美容师端（PWA）
-- [ ] 登录（magic link），替掉过渡期的共享 `GROOMER_API_TOKEN`，并把人绑到店
-- [ ] 待确认列表，一键确认/拒绝，拒绝给替代时间
-- [ ] 修正识图和报价
-- [ ] Web Push 通知，邮件兜底
+- [ ] POST corrections：conversationId 超过 200 字应该 400 而不是截断（截断会存成不存在的 id）；traceId、original、corrected 也该有大小上限，在一处集中校验；补超长 conversationId 的路由用例（chore/taste-skill 第 8 轮审查）
+- [ ] BookingDetail 的 key 应放在两个调用点的组件上而不是内部 article，这样换预约时整套状态自然丢弃，三个重置 effect 和过期回调的 ref 守护都能删掉；onDone 应直接用 api.correct 返回的 Correction，不再手拼乐观条目（chore/taste-skill 第 8 轮审查）
+- [ ] 布局暴露一个"401 就退出、其他不管"的 helper，历史页和详情页的三处 `if (e instanceof ApiError && e.status === 401) reportError(e)` 收成一处；历史页现在仍是内联 + 横幅双报（chore/taste-skill 第 7 轮审查）
+- [ ] 详情页 confirmedOn 的 effect 依赖里有 booking.id，同一天两条预约来回切会重拉当天安排（chore/taste-skill 第 7 轮审查）
+- [ ] ShopForm 的"行来自已保存资料"标记现在是和 draft 并行的布尔数组，四个 handler 手工对齐；改成标记跟着行走（行上带 `_saved`，normalise 时剥掉）（chore/taste-skill 第 2 轮审查）
+- [x] 过渡期登录：店铺 id + 名字 + 共享 `GROOMER_API_TOKEN` 存本机浏览器，401 自动退出
+- [x] 待确认列表，一键确认/拒绝，拒绝从空档里挑最多 3 个替代时间（`bookings.alternatives`，迁移 0002）
+- [x] 详情看客人对话和照片（`GET /groomer/:shop/conversations/:id`，图片按 id 另取），当天安排条（已确认减掉空档）
+- [x] 修正识图和报价（写 corrections）
+- [x] 已处理列表（`?status=decided`），店铺资料编辑（`PUT /groomer/:shop/shop`，整份过 schema）
+- [x] 中英双语、手机布局（侧栏折成底栏）、tasteskill framed-sheet 壳子、Eirlys 色板和字体
+- [x] 设计系统：`packages/design/`（tokens.json 正本 → `apps/web/app/tokens.css` 和组件预览），artifact 见 docs
+- [ ] 登录（magic link，better-auth + Resend），替掉共享 token，把人绑到店；要先把 web/api 挂到 `fluffdesk.eirlys.ai` 子域（Cloudflare）让 cookie 同站
+- [ ] Web Push 通知（`web-push` + VAPID），邮件兜底（和 magic link 共用 Resend）
+- [ ] confirmed / declined 之后通知客人（web 渠道要轮询或推送；IG/WA 等渠道接入）
+- [ ] 修正报价后"重新报价"给客人（现在只记 corrections，不改预约）
+- [ ] 用 tasteskill `inspect.mjs --app` 对三个屏幕跑一轮检查并修到 0 FAIL（脚本要在本机跑）
 
 ### 安全（PR #1 的安全审查发现，已修）
 - [x] 美容师端鉴权（过渡：Bearer token，没配 503）、修正记录按字段构造
