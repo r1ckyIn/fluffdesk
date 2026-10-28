@@ -36,7 +36,16 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 
 ## TODO
 
-按优先级排。打勾的是做完并验证过的。
+打勾的是做完并验证过的。
+
+### 下一步的顺序（2026-10-28 定）
+1. Fly 部署 api + Vercel 部署 web：Instagram/WhatsApp 的 webhook 验证和 Web Push 都要公网 HTTPS，没有它后面两步做不了；配置和镜像已验证，剩装 flyctl、放两个连接串、`fly deploy`
+2. 美容师端：待确认列表、一键确认/拒绝、magic link 登录换掉共享 token。没有这个 demo 给店主看不完整
+3. Instagram 和 WhatsApp 收发消息；Meta 应用审核要排队，和第 2 步并行提交
+4. PR 级 e2e（Neon 分支）：API key 和 NEON_PROJECT_ID 已在 GitHub，等冒烟脚本
+5. 模型评审和人工打分对齐：等有真客人对话再做，对着假数据对齐没意义
+
+下面按模块分。
 
 ### 导入器（销售第一段：免费 demo）
 - [x] 抽取器：strict tool use + 本地校验 + 原文核对，三次重试
@@ -93,9 +102,9 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 部署时设 Fly secrets：`DATABASE_URL` 用 production 的 fluffdesk_app 串，`MIGRATE_DATABASE_URL` 用 owner 串只给 release_command（两个串都在 `~/.config/fluffdesk/`）
 - [ ] PR 级 e2e：GitHub Action 每个 PR 从 production 建 Neon 分支、跑连真库的冒烟、PR 关了删分支。要项目级 API key 进 GitHub secrets、`NEON_PROJECT_ID` 做 variable；先写冒烟脚本再建 key
 - [ ] eval 对着临时 Neon 分支跑，判分直接查库的最终状态（现在查内存存储）
-- [ ] `hold_booking` 重复执行的幂等（按 toolCallId 去重），现在只靠每会话最多两个的上限
-- [ ] 用 `fluffdesk_app` 跑一遍权限被拒的用例（DDL、别的 schema），确认角色降权有效
-- [ ] db 测试逐条回滚（现在每个文件一个新 PGlite 实例，用例之间靠不同 key 隔离）
+- [x] `hold_booking` 查重：同会话同服务同时段已挂着就回现有的
+- [x] `fluffdesk_app` 的权限用例在 PGlite 里跑：能读写、不能 DDL、不能碰 drizzle schema、新表自动授权
+- [x] db 测试每条前清空重灌
 - [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web

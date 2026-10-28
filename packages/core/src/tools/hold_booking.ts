@@ -35,8 +35,11 @@ export const holdBookingTool = defineTool({
     const service = findService(ctx.shop, args.serviceId);
     if (!service) return { text: `unknown service ${args.serviceId}`, isError: true };
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(args.start)) return { text: "start must be YYYY-MM-DDTHH:MM", isError: true };
+    // 同会话、同服务、同时段已经挂着：客人改了名字、电话或宠物信息再提交，就更新那条，不挂第二个
+    const pending = await ctx.bookings.listPendingForConversation(ctx.conversationId);
+    const duplicate = pending.find((b) => b.serviceId === args.serviceId && b.start === args.start);
     // 一个会话最多挂两个待确认，脚本刷预约会把老板的待办淹掉
-    if ((await ctx.bookings.countPendingForConversation(ctx.conversationId)) >= LIMITS.pendingBookingsPerConversation) {
+    if (!duplicate && pending.length >= LIMITS.pendingBookingsPerConversation) {
       return { text: "this conversation already has pending booking requests; ask the customer to wait for the groomer to confirm", isError: true };
     }
     let quote: { min: number; max: number; currency: "AUD" } | undefined;
@@ -49,7 +52,7 @@ export const holdBookingTool = defineTool({
       }
     }
     const species = (["dog", "cat"].includes(args.pet.species) ? args.pet.species : "other") as "dog" | "cat" | "other";
-    const booking = await ctx.bookings.createPending({
+    const input = {
       shopSlug: ctx.shop.slug,
       conversationId: ctx.conversationId,
       customer: { name: args.customerName, contact: args.contact, channel: ctx.channel },
@@ -58,10 +61,18 @@ export const holdBookingTool = defineTool({
       start: args.start,
       durationMin: service.durationMin,
       quote,
-    });
+    };
+    if (duplicate) {
+      const updated = await ctx.bookings.updatePending(duplicate.id, input);
+      return {
+        text: `pending booking ${updated.id} for ${args.start} already existed and has been updated with these details. The groomer will confirm; do not create another one.`,
+        details: { bookingId: updated.id, status: updated.status, start: updated.start, updated: true },
+      };
+    }
+    const booking = await ctx.bookings.createPending(input);
     return {
       text: `pending booking ${booking.id} created for ${args.start}. The groomer will confirm; tell the customer to expect confirmation.`,
-      details: { bookingId: booking.id, status: booking.status, start: booking.start },
+      details: { bookingId: booking.id, status: booking.status, start: booking.start, updated: false },
     };
   },
 });

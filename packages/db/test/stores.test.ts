@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
@@ -41,9 +41,14 @@ beforeAll(async () => {
   shops = new PgShopRepo(db);
   conversations = new PgConversationStore(db);
   bookings = new PgBookingStore(db);
+}, 60_000);
+
+// 每条用例从空表开始：PGlite 一个连接，存储自己有事务，不能再套一层外部事务回滚，所以用 truncate
+beforeEach(async () => {
+  await db.execute(sql`truncate ${schema.conversationImages}, ${schema.bookings}, ${schema.traces}, ${schema.corrections}, ${schema.conversations}, ${schema.shops} cascade`);
   await shops.upsert(shopConfig("s1"), { approved: true });
   await shops.upsert(shopConfig("s2"), { approved: true });
-}, 60_000);
+});
 
 const pendingInput = (conv: Conversation, shopSlug = conv.shopSlug) => ({
   shopSlug,
@@ -147,7 +152,8 @@ describe("PgBookingStore", () => {
     expect(await bookings.get(b.id)).toEqual(b);
     expect((await bookings.listPending("s1")).map((x) => x.id)).toContain(b.id);
     expect((await bookings.listPending("s1")).every((x) => x.shopSlug === "s1")).toBe(true);
-    expect(await bookings.countPendingForConversation(conv.id)).toBe(1);
+    expect((await bookings.listPendingForConversation(conv.id)).map((x) => x.id)).toEqual([b.id]);
+    expect(await bookings.listPendingForConversation(other.id)).toHaveLength(1);
   });
   it("only a pending booking can be decided, and only once", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-decide" }, "en");
@@ -158,7 +164,22 @@ describe("PgBookingStore", () => {
     await expect(bookings.decide(b.id, { status: "confirmed", by: "groomer-2" })).rejects.toThrow(/already declined/);
     expect((await bookings.get(b.id))?.status).toBe("declined");
     await expect(bookings.decide("bk_missing", { status: "confirmed", by: "g" })).rejects.toThrow(/not found/);
-    expect(await bookings.countPendingForConversation(conv.id)).toBe(0);
+    expect(await bookings.listPendingForConversation(conv.id)).toHaveLength(0);
+  });
+  it("the same slot requested twice at once yields one pending booking, which can then be updated in place", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-slot" }, "en");
+    const [a, b] = await Promise.all([bookings.createPending(pendingInput(conv)), bookings.createPending(pendingInput(conv))]);
+    expect(b.id).toBe(a.id);
+    expect(await bookings.listPendingForConversation(conv.id)).toHaveLength(1);
+    const updated = await bookings.updatePending(a.id, { ...pendingInput(conv), customer: { name: "Amy", contact: "0411", channel: "web" } });
+    expect(updated).toMatchObject({ id: a.id, status: "pending", customer: { contact: "0411" } });
+    const stranger = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-stranger" }, "en");
+    await expect(bookings.updatePending(a.id, pendingInput(stranger))).rejects.toThrow(/not found/);
+    await bookings.decide(a.id, { status: "declined", by: "g" });
+    await expect(bookings.updatePending(a.id, pendingInput(conv))).rejects.toThrow(/already declined/);
+    // 决定过的不占槽位：同时段可以再挂一条新的待确认
+    const again = await bookings.createPending(pendingInput(conv));
+    expect(again.id).not.toBe(a.id);
   });
   it("two groomers deciding at once: exactly one wins", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-race" }, "en");

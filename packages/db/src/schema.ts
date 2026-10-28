@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, numeric, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import type { Booking, BookingStatus, Conversation, Correction, PetSummary, ShopConfig, Trace } from "@fluffdesk/core";
 
@@ -68,7 +69,12 @@ export const bookings = pgTable(
     declineReason: text("decline_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("bookings_shop_status").on(t.shopSlug, t.status), index("bookings_conversation_status").on(t.conversationId, t.status)],
+  (t) => [
+    index("bookings_shop_status").on(t.shopSlug, t.status),
+    index("bookings_conversation_status").on(t.conversationId, t.status),
+    // 同会话、同服务、同时段最多一条待确认：多实例并发也挂不出两个
+    uniqueIndex("bookings_pending_slot").on(t.conversationId, t.serviceId, t.start).where(sql`${t.status} = 'pending'`),
+  ],
 );
 
 export const traces = pgTable("traces", {
