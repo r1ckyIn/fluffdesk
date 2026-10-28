@@ -36,5 +36,10 @@
 - 第一轮审整个 PR（`origin/main...HEAD`）；之后每一轮只审上一轮之后的新提交（`<上一轮审到的提交>..HEAD`），别把整个 PR 重审一遍。每轮审到哪个提交记在 PR 描述里。
 - 审查之后又加的任何提交（包括文档、脚本）都算新改动，合并前要补审。
 
+## 设计系统
+- 正本在 `packages/design/project/`（Design System 目录格式）：`tokens.json` 是唯一的值来源，`npm run design:build` 生成 `apps/web/app/tokens.css`（提交进仓库，Vercel 单独构建拿不到 workspace）和 `project/components/bundle.css`；CI 跑 `design:check` 保证同步。改颜色字体只改 tokens.json，改组件样式只改 `apps/web/app/globals.css`，不手改生成文件
+- 颜色和字体来自 Eirlys 规范；其余按 `.claude/skills/design-taste-frontend` 的 app-screen 规则（风格 framed-sheet，sheet 在 `.taste-skill/direction.json`，`draw.mjs --show` 重印）。做新屏幕先读 `references/app-screens.md`，做完跑 `inspect.mjs --app` 到 0 FAIL
+- 设计系统的可浏览版是一个 Design System artifact（链接在 docs/design-system.md），改完 `packages/design/project/` 后重新发布
+
 ## 常用命令
-`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`、`npm run deploy:api`、`npm run deploy:web`（都只许从和 origin/main 一致的干净 main 发）
+`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run design:build`、`npm run design:check`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`、`npm run deploy:api`、`npm run deploy:web`（都只许从和 origin/main 一致的干净 main 发）

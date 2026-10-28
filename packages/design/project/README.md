@@ -10,8 +10,12 @@ from the Eirlys AI design spec (2026-10-21), because fluffdesk is an Eirlys prod
 else, how screens are composed and what is not allowed, follows tasteskill v2's app-screen rules,
 style `framed-sheet`.
 
-`tokens.json` is the only source of values. `dist/tokens.css` is generated from it
-(`npm run build -w packages/design`); the web app imports that file and references tokens only.
+`tokens.json` is the only source of values. `npm run build -w packages/design` generates
+`apps/web/app/tokens.css` (the app's variables) and `components/bundle.css` (the same stylesheet the
+app uses, `apps/web/app/globals.css`, behind a shim so the previews here and the real screens share
+one source). The previews under `components/` are static HTML written against those classes; there
+is no JavaScript bundle. To change the system, edit `tokens.json` or `globals.css` in the repo and
+rebuild; do not edit the generated files.
 
 ## Content
 

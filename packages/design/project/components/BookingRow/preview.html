@@ -1,0 +1,21 @@
+<!-- @dsCard group="Lists" height=168 subtitle="Two rows, the second selected" width=420 -->
+<!doctype html>
+<html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>
+body { background: var(--color-sheet); padding: 16px; margin: 0; }
+.stack { display: grid; gap: 12px; }
+.rowline { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.rows { padding: 0; }</style></head><body>
+
+<div class="rows" role="listbox" style="border:1px solid var(--color-border); border-radius: var(--radius-card); overflow:hidden; max-width: 420px;">
+  <button class="row" role="option" aria-selected="false">
+    <span class="who">Amy</span><span class="when">9 min</span>
+    <span class="what">Milo · Cavoodle · Full groom</span><span></span>
+    <span class="time muted num"><span>Tue 3 Nov, 10:00</span><span aria-hidden="true">·</span><span>$90–120</span></span>
+  </button>
+  <button class="row" role="option" aria-selected="true">
+    <span class="who">陈太太</span><span class="when">1 h</span>
+    <span class="what">Lucky · Golden Retriever · Bath &amp; tidy</span><span></span>
+    <span class="time muted num"><span>Wed 4 Nov, 14:00</span><span aria-hidden="true">·</span><span>$100–140</span></span>
+  </button>
+</div>
+</body></html>

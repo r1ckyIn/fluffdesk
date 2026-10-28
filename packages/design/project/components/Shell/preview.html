@@ -1,0 +1,47 @@
+<!-- @dsCard group="Layout" height=420 width=960 subtitle="Desktop frame at 960px; the sheet holds the inbox" -->
+<!doctype html>
+<html lang="en-AU"><head><meta charset="utf-8"><style>
+body { margin: 0; }
+.demo { width: 960px; height: 420px; overflow: hidden; }
+.demo .app { height: 420px; }
+.demo .sidebar { height: 420px; }
+.demo .inbox { grid-template-columns: 300px minmax(0, 1fr); }
+</style></head><body>
+<div class="demo">
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand" style="color: var(--color-accent);">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="6" rx="3"/><path d="M7.5 10v9M12 10v9M16.5 10v9"/></svg>
+      <span class="wordmark" style="color: var(--color-ink);">fluffdesk</span>
+    </div>
+    <div class="scope"><div class="shop-name">Fluffy Paws Newtown</div><div class="shop-sub">Newtown NSW</div></div>
+    <nav class="nav">
+      <a class="nav-item" aria-current="page" href="#"><span>Waiting for you</span><span class="count num">3</span></a>
+      <a class="nav-item" href="#"><span>Decided</span></a>
+      <a class="nav-item" href="#"><span>Shop details</span></a>
+    </nav>
+    <div class="bottom"><div class="user-row"><span class="avatar">L</span><span>Lachie</span></div></div>
+  </aside>
+  <header class="topbar"><div class="today">Wed 28 Oct</div><div class="right"><span class="btn btn-quiet">中文</span><span class="btn btn-quiet">Sign out</span></div></header>
+  <main class="sheet">
+    <div class="inbox">
+      <section class="list-col">
+        <div class="list-head"><h1>Waiting for you</h1><span class="count num">3 requests</span></div>
+        <div class="rows">
+          <button class="row" aria-selected="true"><span class="who">Amy</span><span class="when">9 min</span><span class="what">Milo · Cavoodle · Full groom</span><span></span><span class="time muted num"><span>Tue 3 Nov, 10:00</span><span>·</span><span>$90–120</span></span></button>
+          <button class="row"><span class="who">陈太太</span><span class="when">1 h</span><span class="what">Lucky · Golden Retriever · Bath &amp; tidy</span><span></span><span class="time muted num"><span>Wed 4 Nov, 14:00</span><span>·</span><span>$100–140</span></span></button>
+          <button class="row"><span class="who">Raj</span><span class="when">Yesterday</span><span class="what">Biscuit · Beagle · Bath &amp; tidy</span><span></span><span class="time muted num"><span>Wed 4 Nov, 10:00</span><span>·</span><span>$80–100</span></span></button>
+        </div>
+      </section>
+      <section class="detail-col">
+        <header class="detail-head">
+          <div><h1>Amy · Milo</h1><div class="sub"><span class="pill pill-pending">Waiting</span><span>Cavoodle</span><span>·</span><span>Full groom</span><span>·</span><span class="num">Tue 3 Nov, 10:00</span></div></div>
+          <div class="actions"><span class="btn btn-outline">Decline</span><span class="btn btn-primary">Confirm booking</span></div>
+        </header>
+        <dl class="kv" style="max-width: 440px;"><dt>Customer</dt><dd>Amy</dd><dt>Contact</dt><dd class="num">0400 123 456</dd><dt>Came in via</dt><dd><span class="pill pill-neutral">web</span></dd></dl>
+      </section>
+    </div>
+  </main>
+</div>
+</div>
+</body></html>

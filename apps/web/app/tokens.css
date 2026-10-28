@@ -1,6 +1,9 @@
 /* fluffdesk — generated from project/tokens.json; do not edit */
 :root {
   --color-ground: #e9e6ee;
+  --color-pearl-lilac: #e4dcf3;
+  --color-pearl-cyan: #dcecf0;
+  --color-pearl-pink: #f1dfe9;
   --color-sheet: #f7f5fa;
   --color-raised: #f0edf4;
   --color-active: #e9e6ee;
@@ -24,8 +27,8 @@
   --color-chart-1: var(--color-accent);
   --color-chart-2: #3f7f8c;
   --color-chart-3: #8a6d1f;
-  --font-sans: "Figtree Variable", "Noto Sans SC Variable", system-ui, sans-serif;
-  --font-serif: "Fraunces Variable", "Noto Serif SC", Georgia, serif;
+  --font-sans: "Figtree Variable", "Figtree", "Noto Sans SC Variable", "Noto Sans SC", system-ui, sans-serif;
+  --font-serif: "Fraunces Variable", "Fraunces", "Noto Serif SC", Georgia, serif;
   --type-body: 400 14px/20px var(--font-sans);
   --type-body-lg: 400 16px/24px var(--font-sans);
   --type-small: 400 12px/16px var(--font-sans);
