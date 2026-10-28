@@ -4,7 +4,10 @@
 # 构建上下文是仓库根目录（Dockerfile 要拷 packages/），脚本自己 cd 过去。部署前 release_command 会跑迁移。不透传参数，免得覆盖这些约束。
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ $# -gt 0 ]; then echo "deploy:api 不接受参数（$*），要改部署方式改脚本" >&2; exit 2; fi
 source scripts/require-clean-main.sh
-machines=$(flyctl machines list -a fluffdesk-api --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).length))')
-if [ "$machines" -gt 1 ]; then echo "fluffdesk-api 现在有 $machines 台机器，先 flyctl scale count 1 -a fluffdesk-api 缩回 1 台" >&2; exit 2; fi
+# 只数 app 进程组里没销毁的机器：release_command 的临时机器和 fly console 不算
+machines=$(flyctl machines list -a fluffdesk-api --json | node -p 'JSON.parse(require("fs").readFileSync(0,"utf8")).filter(m => m.config?.metadata?.fly_process_group === "app" && m.state !== "destroyed").length')
+case "$machines" in ''|*[!0-9]*) echo "解析不了机器数：'$machines'" >&2; exit 2;; esac
+if [ "$machines" -gt 1 ]; then echo "fluffdesk-api 的 app 组现在有 $machines 台机器，先 flyctl scale count 1 -a fluffdesk-api 缩回 1 台" >&2; exit 2; fi
 exec flyctl deploy -a fluffdesk-api -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only --ha=false

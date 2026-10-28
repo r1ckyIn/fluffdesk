@@ -107,7 +107,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] `hold_booking` 查重：同会话同服务同时段已挂着就回现有的
 - [x] `fluffdesk_app` 的权限用例在 PGlite 里跑：能读写、不能 DDL、不能碰 drizzle schema、新表自动授权
 - [x] db 测试每条前清空重灌
-- [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
+- [ ] 部署和迁移都挪进 GitHub Action（`push: main` 且 `needs: check`）：CI 绿才发这条规矩就不用本地脚本查 `gh` 了，Fly 的机器上也不用放 owner 串（demo 阶段先接受）
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [x] Fly.io 悉尼区部署 api：app `fluffdesk-api`，https://fluffdesk-api.fly.dev，1 台机器（进程内的会话锁和限流不支持多实例：`deploy:api` 用 `--ha=false`，部署前查机器数，多于 1 台就拒，要先 `flyctl scale count 1 -a fluffdesk-api`），release_command 已把迁移 0001 跑到 production
 - [x] Vercel 部署 web：项目 `fluffdesk-web`，https://fluffdesk-web.vercel.app，根目录 `apps/web`（单独装依赖，所以 `apps/web/package.json` 要自带 typescript），环境变量 `NEXT_PUBLIC_API_URL` 指向 Fly；发版 `npm run deploy:web`

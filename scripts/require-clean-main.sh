@@ -6,5 +6,6 @@ if [ -n "$(git status --porcelain --untracked-files=all)" ]; then echo "工作�
 git fetch -q origin main
 sha=$(git rev-parse HEAD)
 if [ "$sha" != "$(git rev-parse origin/main)" ]; then echo "本地 main 和 origin/main 不是同一个提交，先 pull 或 push" >&2; exit 2; fi
-conclusion=$(gh run list --branch main --commit "$sha" --workflow ci.yml --json conclusion -q '.[0].conclusion' 2>/dev/null || true)
+# gh 自己的错（没登录、没网）照常打出来并中止，别和"CI 没跑完"混在一起
+conclusion=$(gh run list --branch main --commit "$sha" --workflow ci.yml --limit 1 --json conclusion -q '.[0].conclusion')
 if [ "$conclusion" != "success" ]; then echo "这个提交在 GitHub 上的 CI 不是 success（现在是 '${conclusion:-没找到}'），等它绿了再发" >&2; exit 2; fi
