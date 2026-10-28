@@ -20,7 +20,11 @@
 | `npm run test:mutate` | n/n |
 | `npm run eval -- quote --replay` | n/n |
 | `npm run design:check` | |
-| 改动路径实际走了一遍 | 怎么走的、看到了什么（接口用 curl / 页面用 Chrome / 迁移在 Neon dev 分支） |
+| 浏览器走查（页面改动必填） | 走了哪些流程（桌面 + 手机宽度，中 + 英）；控制台 error/warn 数；网络 4xx/5xx 数；GIF 和截图的路径 |
+| 接口走查（api 改动必填） | 每条改动路由的正常和错误路径，状态码 |
+| 最终状态核对 | 走完后用接口查到的数据（预约状态、替代时段、修正记录） |
+| `inspect.mjs --app`（页面改动必填） | FAIL n · WARN n |
+| 迁移 | 在 Neon dev 分支跑过的输出 |
 
 改了抽取或合并逻辑：Fenny & Jacks 重跑结果。改了提示词或工具定义：重录的录制数。
 

@@ -32,7 +32,7 @@
 
 ## PR 流程
 代码写完、提交干净 → `/pr-review` → 它问一次"推不推"→ 推、开 PR、CI 绿、合并。细则在 `.claude/skills/pr-review/SKILL.md`，原则和理由在 docs/adr/0002-review-loop.md。人只看每轮的摘要和最后的报告，不参与循环，修也由 agent 做。
-- 先自证再审：门禁命令全绿、改动路径实际走过、按路径表定风险档，证据进 PR 模板（`.github/pull_request_template.md`）。
+- 先自证再审：门禁命令全绿、改动路径实际走过（页面用 Claude in Chrome 把每个流程走到尾、查控制台和网络、录 GIF 当证据；接口用 curl）、按路径表定风险档，证据进 PR 模板（`.github/pull_request_template.md`）。
 - 审查者全是全新上下文：`/test-review`（fork 子代理）、`/code-review <级别> <范围>`、`/security-review`（增量轮自己派识别和过滤子代理）。作者只分诊和修。
 - 分诊是机械规则：high、important、安全保留项只能修，或经独立复核子代理同意后否决；纯风格丢弃；一轮的修复合成一个提交，这个提交就是下一轮的范围。
 - 停止：一轮没有新的 high 或 important、没有 ≥8 的安全项、没有必须改。轮数不设上限；停止后 medium 以下最多再修一次、只补审一轮，之后只记 TODO。卡住（同一条修两次仍在、修复连续引入 high）就停下来让人拍板。
