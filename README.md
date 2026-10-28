@@ -66,6 +66,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 模型评审和人工打分对齐（75% 以上），再启用 judge
 - [x] 自建 `.claude/skills/test-review`（守测试写法）和 `.claude/skills/pr-review`（审查循环，ADR 0002）
 - [ ] 新加核心逻辑时同步往 `scripts/mutate.sh` 加变异，否则护栏没人验
+- [ ] PgBookingStore.createPending 现在用应用进程时钟写 created_at（为了测试可控），多实例时钟偏差会影响队列次序；改成只在注入了时钟时才写，生产用数据库默认值（chore/taste-skill 第 7 轮审查）
 - [ ] `GET /corrections?conversationId=` 现在是路由层在整店列表上过滤，`CorrectionStore.list` 加可选的 conversationId 让 Postgres 用 WHERE（chore/taste-skill 第 5 轮审查）
 - [ ] `packages/eval/datasets/shops.json` 的加载和校验在 `apps/api/src/runtime.ts`、`packages/eval/src/runner.ts`、`packages/db/src/seed.ts` 各写了一遍，收成一个共享的 loader（chore/taste-skill 第 4 轮审查）
 - [ ] 浏览器走查通过的关键流程（美容师端确认/拒绝、聊天页询价）改写成 Playwright e2e 放进 CI，Chrome 负责探索，Playwright 负责防回归
@@ -84,6 +85,8 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp Cloud API：同上
 
 ### 美容师端（PWA）
+- [ ] 布局暴露一个"401 就退出、其他不管"的 helper，历史页和详情页的三处 `if (e instanceof ApiError && e.status === 401) reportError(e)` 收成一处；历史页现在仍是内联 + 横幅双报（chore/taste-skill 第 7 轮审查）
+- [ ] 详情页 confirmedOn 的 effect 依赖里有 booking.id，同一天两条预约来回切会重拉当天安排（chore/taste-skill 第 7 轮审查）
 - [ ] ShopForm 的"行来自已保存资料"标记现在是和 draft 并行的布尔数组，四个 handler 手工对齐；改成标记跟着行走（行上带 `_saved`，normalise 时剥掉）（chore/taste-skill 第 2 轮审查）
 - [x] 过渡期登录：店铺 id + 名字 + 共享 `GROOMER_API_TOKEN` 存本机浏览器，401 自动退出
 - [x] 待确认列表，一键确认/拒绝，拒绝从空档里挑最多 3 个替代时间（`bookings.alternatives`，迁移 0002）

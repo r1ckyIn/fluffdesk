@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { useGroomer } from "@/lib/groomer-context";
 import { useLocale } from "@/lib/i18n";
@@ -26,6 +26,11 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
   // null = 还没拿到；"error" = 拿失败了。失败不能画成"还没纠正过"，不然会重复提交同一条修正
   const [corrections, setCorrections] = useState<Correction[] | null | "error">(null);
   const [correctionsTry, setCorrectionsTry] = useState(0);
+  // 正在看的会话：保存修正的回调可能在换了预约之后才回来，那时它带的是上一条的会话，要丢掉
+  const currentConversation = useRef(booking.conversationId);
+  useEffect(() => {
+    currentConversation.current = booking.conversationId;
+  }, [booking.conversationId]);
   const [photos, setPhotos] = useState<string[]>([]);
   const readOnly = booking.status !== "pending";
 
@@ -184,7 +189,18 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
         ) : corrections === null ? (
           <p className="muted">{t("correct.loading")}</p>
         ) : (
-          <CorrectionForms booking={booking} done={done} onDone={(kind) => setCorrections((c) => [...(c as Correction[]), { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId: booking.conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }])} />
+          <CorrectionForms
+            booking={booking}
+            done={done}
+            onDone={(kind) => {
+              const conversationId = booking.conversationId;
+              setCorrections((c) => {
+                // 已经切到别的预约、或列表正在重拉：这次回调不属于当前列表，原样返回
+                if (conversationId !== currentConversation.current || !Array.isArray(c)) return c;
+                return [...c, { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }];
+              });
+            }}
+          />
         )}
       </section>
 

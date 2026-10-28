@@ -129,13 +129,13 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     const correction: Correction = {
       id: `cor_${randomUUID()}`,
       shopSlug: c.req.param("shop"),
-      conversationId: body.conversationId,
+      conversationId: body.conversationId.trim().slice(0, 200),
       traceId: typeof body.traceId === "string" ? body.traceId : undefined,
       kind: body.kind as Correction["kind"],
       original: body.original ?? null,
       corrected: body.corrected ?? null,
       note: typeof body.note === "string" ? body.note.slice(0, 2000) : undefined,
-      by: body.by,
+      by: body.by.trim().slice(0, 80),
       createdAt: new Date().toISOString(),
     };
     await rt.corrections.add(correction);
