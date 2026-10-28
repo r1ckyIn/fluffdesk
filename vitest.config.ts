@@ -11,5 +11,8 @@ export default defineConfig({
   },
   test: {
     include: ["packages/*/test/**/*.test.ts", "apps/*/test/**/*.test.ts"],
+    // 一个 PGlite 实例启动就要 ~650MB，db 的两个测试文件并行时整体峰值 2GB，7GB 的开发机会 OOM；
+    // 串行跑峰值 1.2GB，多花两三秒。变异脚本会连跑二十多次，更要省
+    maxWorkers: 1,
   },
 });
