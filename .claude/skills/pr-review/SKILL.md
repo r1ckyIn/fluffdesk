@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: fluffdesk 的 PR 审查循环，代码写完、提交干净之后用。自证（门禁命令 + 实际走一遍改动路径）→ 按风险定级 → 每轮并行跑全新上下文的 test-review / code-review / security-review → 按机械规则分诊、修复成一个提交 → 下一轮只审这个提交，直到一轮没有新的 high 或 important 和 ≥8 的安全项 → 按 PR 模板写报告，问一次推不推。人只看输出，不参与循环。原则见 docs/adr/0002-review-loop.md。
+description: fluffdesk 的 PR 审查循环，代码写完、提交干净之后用。自证（门禁命令 + 实际走一遍改动路径）→ 按风险定级 → 每轮并行跑全新上下文的 test-review / code-review / security-review → 按机械规则分诊、修复成一个提交 → 下一轮只审这个提交，最多三轮，第四轮仍有 high 或 important 就交给人 → 按 PR 模板写报告，问一次推不推。人只看输出，不参与循环。原则见 docs/adr/0002-review-loop.md。
 argument-hint: "[基准，默认 origin/main]"
 ---
 
@@ -13,6 +13,7 @@ argument-hint: "[基准，默认 origin/main]"
 全部满足才开始，差一条就先补，不是先审再补：
 
 - `git status --porcelain` 为空；分支领先基准至少一个提交。
+- **规模**：`git diff --stat <基准>...HEAD`，去掉 vendored 的第三方目录（如 `.claude/skills/design-taste-frontend/`）、锁文件和生成文件后，改动文件超过 40 个或改动行超过 1500 行，就不审：把改动按模块列出来给人，让人决定怎么拆成几个 PR。审查收敛不了的第一原因就是 PR 太大（#9 五样东西塞一个 PR，跑了 9 轮）。
 - 本轮循环开一个记录文件 `<scratchpad>/pr-review/<分支名>.md`，所有轮次的发现和处理都追加进去，最后生成 PR 描述用。不要放进仓库。
 
 ## 一、自证
@@ -41,6 +42,7 @@ argument-hint: "[基准，默认 origin/main]"
    - 走完用接口查最终状态对不对（比如确认之后 `GET /bookings?status=decided` 里有那条、替代时段存进去了），不信页面上的提示。
    - 关键流程用 `gif_creator` 录下来存进 `<scratchpad>/pr-review/<分支名>/`，文件名写流程名；截图同样放那里。证据表里写路径、走了哪些流程、控制台和网络是否干净、最终状态查了什么。人要看就打开 GIF，不用自己点一遍。
    - 走查不进 CI，也不能代替测试。走查通过的关键流程，若还没有自动化覆盖，在 README TODO 记一条"改写成 Playwright e2e"，不在这个 PR 里做。
+   - 踩过的坑：`resize_window` 在这台机器的窗口管理器下不生效，手机视口用一个本机 `localhost:<port>` 的包装页放 390 宽的 iframe（同站，共享 localStorage）；`next build` 之后要重启 `next start`，不然还是旧产物；变异脚本会临时改源码并让 tsx watch 重启、内存数据清空，跑变异时别造数、别起审查者；每条流程走完用 DOM 探针（`javascript_tool` 查元素和 rect）再核一次，扩展的截图在后台窗口里可能是旧帧。
 3. 风险定级，看 `git diff --name-only <基准>...HEAD` 命中哪一档，取最高：
 
    | 档 | 路径 | 后果 |
@@ -68,9 +70,17 @@ argument-hint: "[基准，默认 origin/main]"
 | 结局 | 适用 | 规则 |
 |---|---|---|
 | 修 | code-review 的 high、important；security 保留项（≥8）；test-review 的必须改 | 本轮必修，没有例外。另外 medium 和 low 里"改动不超过二十行、不改接口、是明确的 bug 或 CLAUDE.md 有明文规矩"的也修 |
-| 否决 | 发现不成立 | high、important、security 保留项：先派一个全新上下文的复核子代理，给它发现原文和相关代码，让它独立判断；它同意不成立才能否决，理由和复核结论一起记。medium 以下作者一句话理由即可 |
+| 否决 | 复现不出来、或复核后不成立 | high、important、security 保留项：先派一个全新上下文的复核子代理，给它发现原文和相关代码，让它独立判断；它同意不成立才能否决，理由和复核结论一起记。medium 以下作者一句话理由即可。所有否决都追加进 `docs/reviews/dismissed.md`（误报与否决清单） |
 | 记 TODO | 成立，但超出这个 PR 的范围或要等外部条件 | 写进 README TODO 对应模块，一行，带来源（第几轮哪条）。high 和 important 不能记 TODO，除非复核子代理同意"成立但确实不属于这个 PR" |
 | 丢弃 | 纯风格、命名、个人偏好，CLAUDE.md 没有对应规矩 | 不记明细，只计数 |
+
+**先复现，再修。** 审查者的发现是线索不是事实。每条要修的：
+- 后端和核心逻辑：先写一条会红的测试（按 CLAUDE.md 的分配进对应的契约测试文件），跑一次看它红，再改实现让它绿。测试留下，核心分支同步加变异。
+- 前端（没有组件测试基建）：写出复现步骤并在浏览器里真的点出来，记进记录文件；修完再点一次。
+- 复现不出来的：结局是"否决"，写进 `docs/reviews/dismissed.md`，带复现尝试。下一轮派 security 识别子代理和 test-review 时把这份清单放进提示词；code-review 没法带提示词，分诊时对照清单，同一条算"重复"不算新。
+- 修法本身要过一遍"会不会引入新问题"：删分支前确认它真的不可达（#9 第 6 轮删"不可达分支"顺手删掉了守护，引出崩溃路径）；测试依赖的时间、顺序要可控（#9 第 5 轮冻结了决定时间却靠数据库毫秒级 created_at 分先后）。
+
+**同一个文件连续两轮都出现在修复提交里**，第三轮不准再在它上面打补丁：要么按审查者给出的结构性解法改一次（改法先让一个全新上下文的子代理看过），要么这个文件剩下的发现全部记 TODO。#9 的 BookingDetail 连改五轮，每轮的补丁都给下一轮留了新发现。
 
 同类发现和配置文件：
 
@@ -92,17 +102,19 @@ argument-hint: "[基准，默认 origin/main]"
 
 **停止条件**，本轮同时满足：code-review 没有新的 high 或 important；security 没有保留项；test-review 没有必须改。满足就进第五步。
 
-**停止那一轮剩下的 medium 和 low**：按第三步的"修"规则最多再修一次，这个修复提交只再过一轮 `/code-review <级别> <sha>..HEAD`（不跑 security 和 test-review，除非它碰了高风险路径）。这一轮回来的 medium 和 low 一律记 TODO，不再改代码。high 或 important 则回到第二步正常循环。
+**停止那一轮剩下的 medium 和 low**：按第三步的"修"规则最多再修一次，这个修复提交只再过一轮 `/code-review <级别> <sha>..HEAD`（不跑 security 和 test-review，除非它碰了高风险路径）。这一轮回来的 medium 和 low 一律记 TODO，不再改代码。high 或 important 则交给人（见下）。
 
-**轮数不设上限**，但下面任一情况算卡住，停下来把记录文件的内容整理给人，让人拍板，不要自己绕：
+**轮数上限三轮**：第 1 轮整个 PR，第 2、3 轮只审上一轮的修复提交。第 3 轮的修复提交再过一次 `/code-review`（算补审，不是第 4 轮的完整循环）：没有 high 或 important 就停；仍有，停下来把记录文件整理给人，由人判断是修、是拆 PR 还是接受，不自动修。#9 的数据：第 1 轮抓到全部要紧的，第 2 到 4 轮越来越小，第 5 到 8 轮在前端补丁上打转。三轮之后还收敛不了，问题在修法或 PR 规模，不在轮数。
+
+上限之内，下面任一情况也算卡住，提前停下来交给人：
 
 - 同一条发现修了两次仍被报出来。
-- 修复提交引入了新的 high 或 important，连续两轮。
+- 修复提交引入了新的 high 或 important。
 - 复核子代理和审查者对一条 high 的结论相反，而作者也拿不准。
 
 ## 五、报告与推送
 
-1. 按 `.github/pull_request_template.md` 写 PR 描述：做了什么、风险等级和高风险文件、证据表、审查记录表（每轮一行，范围写提交号）、停止依据、没修的 high（正常应为零）、没做的。内容全部来自记录文件，不凭记忆。
+1. 按 `.github/pull_request_template.md` 写 PR 描述：做了什么、风险等级和高风险文件、证据表、审查记录表（每轮一行，范围写提交号）、停止依据、没修的 high（正常应为零）、本次否决并写进 `docs/reviews/dismissed.md` 的条目、没做的。内容全部来自记录文件，不凭记忆。
 2. 在聊天里给人一份同样结构的收尾，加一句"审查共 N 轮，修复 k 条，否决 g 条（复核同意），TODO h 条"。高风险 PR 列出建议人亲自看的文件，不超过五个。
 3. 问一次：推分支并开 PR，CI 绿了之后合并，可以吗。这是整个流程里唯一要人回答的问题。人说可以就 `git push -u origin <分支>`、`gh pr create --body-file`、等 CI、`gh pr merge --squash --delete-branch`，然后更新记忆里的项目进度。
 4. 推送之后任何新提交（包括改 PR 描述以外的文档）都回到第二步，范围是 `<已审到的 HEAD>..HEAD`，合并前补完。

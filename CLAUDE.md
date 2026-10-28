@@ -32,10 +32,11 @@
 
 ## PR 流程
 代码写完、提交干净 → `/pr-review` → 它问一次"推不推"→ 推、开 PR、CI 绿、合并。细则在 `.claude/skills/pr-review/SKILL.md`，原则和理由在 docs/adr/0002-review-loop.md。人只看每轮的摘要和最后的报告，不参与循环，修也由 agent 做。
-- 先自证再审：门禁命令全绿、改动路径实际走过（页面用 Claude in Chrome 把每个流程走到尾、查控制台和网络、录 GIF 当证据；接口用 curl）、按路径表定风险档，证据进 PR 模板（`.github/pull_request_template.md`）。
+- 先自证再审：门禁命令全绿、改动路径实际走过（页面用 Claude in Chrome 把每个流程走到尾、查控制台和网络、录 GIF 当证据；接口用 curl）、按路径表定风险档，证据进 PR 模板（`.github/pull_request_template.md`）。diff 超过 40 个文件或 1500 行（不算 vendored 和生成文件）先拆 PR。
 - 审查者全是全新上下文：`/test-review`（fork 子代理）、`/code-review <级别> <范围>`、`/security-review`（增量轮自己派识别和过滤子代理）。作者只分诊和修。
 - 分诊是机械规则：high、important、安全保留项只能修，或经独立复核子代理同意后否决；纯风格丢弃；一轮的修复合成一个提交，这个提交就是下一轮的范围。
-- 停止：一轮没有新的 high 或 important、没有 ≥8 的安全项、没有必须改。轮数不设上限；停止后 medium 以下最多再修一次、只补审一轮，之后只记 TODO。卡住（同一条修两次仍在、修复连续引入 high）就停下来让人拍板。
+- 先复现再修：后端先写会红的测试，前端写复现步骤并点出来；复现不了的否决并记进 `docs/reviews/dismissed.md`。同一文件连续两轮出现在修复提交里，第三轮不许再打补丁。
+- 停止：一轮没有新的 high 或 important、没有 ≥8 的安全项、没有必须改。轮数上限三轮，第三轮的修复只补审一次 code-review，仍有 high 或 important 就交给人；停止后 medium 以下最多再修一次、只补审一轮，之后只记 TODO。卡住（同一条修两次仍在、修复引入 high）提前停下来让人拍板。
 - 循环里不改 agent 自己的配置（CLAUDE.md、`.claude/**`、ADR、PR 模板）。和以前 PR 同类的发现、以及针对配置文件的发现，都追加进 `docs/reviews/recurring-findings.md` 等人逐条审，不自己改规矩。
 - 第一轮审整个 PR（`origin/main...HEAD`），之后只审新提交；审查后又加的任何提交（文档也算）合并前补审。漏了审查就在合并后的 diff 上补跑并开修复 PR。
 
