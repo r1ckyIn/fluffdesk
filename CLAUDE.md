@@ -32,7 +32,7 @@
 
 ## PR 流程
 开分支 → 提交 → `/test-review` → `/code-review` → `/security-review` → 合并。三个审查都跑完才能合，漏了就在合并后的 diff 上补跑并开修复 PR。
-- code-review 和 security-review 都要反复跑，直到一轮没有新的 high 才算过。修完发现再提交，就再审一轮。
+- code-review 和 security-review 都要反复跑，直到一轮没有新的 high 或 important 才算过；medium 以下修不修看取舍，不用再起一轮。修完发现再提交，就再审一轮。
 - 第一轮审整个 PR（`origin/main...HEAD`）；之后每一轮只审上一轮之后的新提交（`<上一轮审到的提交>..HEAD`），别把整个 PR 重审一遍。每轮审到哪个提交记在 PR 描述里。
 - 审查之后又加的任何提交（包括文档、脚本）都算新改动，合并前要补审。
 
