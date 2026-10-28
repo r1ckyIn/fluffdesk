@@ -75,6 +75,21 @@ describe("groomer routes", () => {
     expect((await decide("other-shop")).status).toBe(404); // 这家店不在运行时里
     expect((await app.request("/groomer/nope/bookings/pending", { headers: auth })).status).toBe(404);
   });
+  it("decide answers 409 for a decided booking but hides storage errors behind a generic 500", async () => {
+    const rt = testRuntime();
+    const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
+    const b = await rt.bookings.createPending({ shopSlug: "s1", conversationId: "c", customer: { name: "A", contact: "0400", channel: "web" }, pet: { species: "dog" }, serviceId: "bath", durationMin: 60, start: "2026-11-03T10:00" });
+    const decide = () => app.request(`/groomer/s1/bookings/${b.id}/decide`, json({ status: "confirmed", by: "g" }, auth));
+    expect((await decide()).status).toBe(200);
+    const again = await decide();
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: expect.stringContaining("already confirmed") });
+    rt.bookings.decide = async () => { throw new Error("connection to server at pooler lost"); };
+    rt.bookings.get = async () => b;
+    const broken = await decide();
+    expect(broken.status).toBe(500);
+    expect(await broken.json()).toEqual({ error: "internal error" });
+  });
   it("corrections are built from named fields, not the raw body", async () => {
     const rt = testRuntime();
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });

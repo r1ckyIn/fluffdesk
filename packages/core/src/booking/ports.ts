@@ -5,6 +5,14 @@ export interface CalendarPort {
   freeSlots(date: string, durationMin: number): Promise<Slot[]>;
 }
 
+/** decide 的业务拒绝（不存在、已经决定过）。路由只把这类错回给调用方，别的错一律当内部错误 */
+export class BookingStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BookingStateError";
+  }
+}
+
 /** 预约存储。agent 只调 createPending；decide 只给美容师端 */
 export interface BookingStore {
   createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking>;
@@ -41,8 +49,8 @@ export class InMemoryBookingStore implements BookingStore {
   }
   async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }) {
     const b = this.items.get(id);
-    if (!b) throw new Error(`booking not found: ${id}`);
-    if (b.status !== "pending") throw new Error(`booking ${id} already ${b.status}`);
+    if (!b) throw new BookingStateError(`booking not found: ${id}`);
+    if (b.status !== "pending") throw new BookingStateError(`booking ${id} already ${b.status}`);
     Object.assign(b, { status: decision.status, decidedAt: new Date().toISOString(), decidedBy: decision.by, declineReason: decision.reason });
     return b;
   }

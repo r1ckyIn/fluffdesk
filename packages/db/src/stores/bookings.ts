@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq } from "drizzle-orm";
-import type { Booking, BookingStore } from "@fluffdesk/core";
+import { BookingStateError, type Booking, type BookingStore } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { bookings } from "../schema.js";
 
@@ -64,8 +64,8 @@ export class PgBookingStore implements BookingStore {
       .returning();
     if (row) return toBooking(row);
     const existing = await this.get(id);
-    if (!existing) throw new Error(`booking not found: ${id}`);
-    throw new Error(`booking ${id} already ${existing.status}`);
+    if (!existing) throw new BookingStateError(`booking not found: ${id}`);
+    throw new BookingStateError(`booking ${id} already ${existing.status}`);
   }
 }
 

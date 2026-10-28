@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
-import type { Correction } from "@fluffdesk/core";
+import { BookingStateError, type Correction } from "@fluffdesk/core";
 import type { AppEnv } from "../app.js";
 import { clientIp } from "./chat.js";
 import { verifyTokenMatches } from "./webhooks.js";
@@ -57,7 +57,9 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
       // TODO: confirmed 之后写日历、通知客人；declined 之后通知客人并给替代时间
       return c.json({ booking });
     } catch (e) {
-      return c.json({ error: (e as Error).message }, 409);
+      // 只有业务拒绝回 409；数据库驱动的报错走 onError，不把细节吐出去
+      if (e instanceof BookingStateError) return c.json({ error: e.message }, 409);
+      throw e;
     }
   });
 
