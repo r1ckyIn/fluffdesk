@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
@@ -41,9 +41,14 @@ beforeAll(async () => {
   shops = new PgShopRepo(db);
   conversations = new PgConversationStore(db);
   bookings = new PgBookingStore(db);
+}, 60_000);
+
+// 每条用例从空表开始：PGlite 一个连接，存储自己有事务，不能再套一层外部事务回滚，所以用 truncate
+beforeEach(async () => {
+  await db.execute(sql`truncate ${schema.conversationImages}, ${schema.bookings}, ${schema.traces}, ${schema.corrections}, ${schema.conversations}, ${schema.shops} cascade`);
   await shops.upsert(shopConfig("s1"), { approved: true });
   await shops.upsert(shopConfig("s2"), { approved: true });
-}, 60_000);
+});
 
 const pendingInput = (conv: Conversation, shopSlug = conv.shopSlug) => ({
   shopSlug,
@@ -148,6 +153,8 @@ describe("PgBookingStore", () => {
     expect((await bookings.listPending("s1")).map((x) => x.id)).toContain(b.id);
     expect((await bookings.listPending("s1")).every((x) => x.shopSlug === "s1")).toBe(true);
     expect(await bookings.countPendingForConversation(conv.id)).toBe(1);
+    expect((await bookings.listPendingForConversation(conv.id)).map((x) => x.id)).toEqual([b.id]);
+    expect(await bookings.listPendingForConversation(other.id)).toHaveLength(1);
   });
   it("only a pending booking can be decided, and only once", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-decide" }, "en");

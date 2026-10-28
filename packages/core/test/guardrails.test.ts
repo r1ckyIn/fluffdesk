@@ -49,6 +49,19 @@ describe("写操作必须等美容师确认", () => {
     const forced = await store.createPending({ ...(b as never), status: "confirmed" } as never);
     expect(forced.status).toBe("pending");
   });
+  it("hold_booking called twice for the same slot returns the existing pending booking instead of a second one", async () => {
+    const c = ctx();
+    const args = { customerName: "A", contact: "0400", serviceId: "bath-tidy", start: "2026-11-03T10:00", pet: { species: "dog", sizeTier: "small" } };
+    const first = await holdBookingTool.run(args, c);
+    const second = await holdBookingTool.run({ ...args, customerName: "A again" }, c);
+    expect(second.isError).not.toBe(true);
+    expect(second.details).toMatchObject({ bookingId: (first.details as { bookingId: string }).bookingId, duplicate: true });
+    expect(second.text).toContain("already exists");
+    expect(await (c.bookings as InMemoryBookingStore).listPending(demoShop.slug)).toHaveLength(1);
+    // 换个时段就是新的请求
+    await holdBookingTool.run({ ...args, start: "2026-11-03T11:00" }, c);
+    expect(await (c.bookings as InMemoryBookingStore).listPending(demoShop.slug)).toHaveLength(2);
+  });
   it("hold_booking rejects an unknown service instead of booking something else", async () => {
     const c = ctx();
     const r = await holdBookingTool.run({ customerName: "A", contact: "0400", serviceId: "spa-day", start: "2026-11-03T10:00", pet: { species: "dog" } }, c);

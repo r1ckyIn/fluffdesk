@@ -20,6 +20,8 @@ export interface BookingStore {
   listPending(shopSlug: string): Promise<Booking[]>;
   /** 一个会话已经挂了几个待确认预约，hold_booking 用它限流 */
   countPendingForConversation(conversationId: string): Promise<number>;
+  /** 一个会话的待确认预约，hold_booking 用它查重 */
+  listPendingForConversation(conversationId: string): Promise<Booking[]>;
   decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking>;
 }
 
@@ -45,7 +47,10 @@ export class InMemoryBookingStore implements BookingStore {
     return [...this.items.values()].filter((b) => b.shopSlug === shopSlug && b.status === "pending");
   }
   async countPendingForConversation(conversationId: string) {
-    return [...this.items.values()].filter((b) => b.conversationId === conversationId && b.status === "pending").length;
+    return (await this.listPendingForConversation(conversationId)).length;
+  }
+  async listPendingForConversation(conversationId: string) {
+    return [...this.items.values()].filter((b) => b.conversationId === conversationId && b.status === "pending");
   }
   async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }) {
     const b = this.items.get(id);

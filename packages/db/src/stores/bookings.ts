@@ -56,6 +56,15 @@ export class PgBookingStore implements BookingStore {
     return row?.n ?? 0;
   }
 
+  async listPendingForConversation(conversationId: string): Promise<Booking[]> {
+    const rows = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.conversationId, conversationId), eq(bookings.status, "pending")))
+      .orderBy(asc(bookings.createdAt));
+    return rows.map(toBooking);
+  }
+
   async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking> {
     const [row] = await this.db
       .update(bookings)

@@ -35,8 +35,17 @@ export const holdBookingTool = defineTool({
     const service = findService(ctx.shop, args.serviceId);
     if (!service) return { text: `unknown service ${args.serviceId}`, isError: true };
     if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(args.start)) return { text: "start must be YYYY-MM-DDTHH:MM", isError: true };
+    // 模型重复调用（重试、客人又确认一遍）不能挂出两个一样的：同会话、同服务、同时段已经挂着就直接回它
+    const pending = await ctx.bookings.listPendingForConversation(ctx.conversationId);
+    const duplicate = pending.find((b) => b.serviceId === args.serviceId && b.start === args.start);
+    if (duplicate) {
+      return {
+        text: `pending booking ${duplicate.id} already exists for ${args.start}; the groomer will confirm. Do not create another one.`,
+        details: { bookingId: duplicate.id, status: duplicate.status, start: duplicate.start, duplicate: true },
+      };
+    }
     // 一个会话最多挂两个待确认，脚本刷预约会把老板的待办淹掉
-    if ((await ctx.bookings.countPendingForConversation(ctx.conversationId)) >= LIMITS.pendingBookingsPerConversation) {
+    if (pending.length >= LIMITS.pendingBookingsPerConversation) {
       return { text: "this conversation already has pending booking requests; ask the customer to wait for the groomer to confirm", isError: true };
     }
     let quote: { min: number; max: number; currency: "AUD" } | undefined;
@@ -61,7 +70,7 @@ export const holdBookingTool = defineTool({
     });
     return {
       text: `pending booking ${booking.id} created for ${args.start}. The groomer will confirm; tell the customer to expect confirmation.`,
-      details: { bookingId: booking.id, status: booking.status, start: booking.start },
+      details: { bookingId: booking.id, status: booking.status, start: booking.start, duplicate: false },
     };
   },
 });

@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import postgres from "postgres";
+import { APP_ROLE, appRoleGrants } from "./app-role.js";
 
 /**
  * 一次性：用 owner 串在当前分支建最小权限角色 fluffdesk_app（只有 DML，没有 CREATE），
@@ -15,7 +16,7 @@ if (!url) {
   process.exit(2);
 }
 const label = process.argv[2] ?? "production";
-const ROLE = "fluffdesk_app";
+const ROLE = APP_ROLE;
 const password = randomBytes(24).toString("base64url");
 const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
@@ -26,13 +27,7 @@ try {
   const [exists] = await owner`select 1 from pg_roles where rolname = ${ROLE}`;
   if (exists) await owner.unsafe(`alter role ${ROLE} with login password ${lit(password)}`);
   else await owner.unsafe(`create role ${ROLE} with login password ${lit(password)}`);
-  await owner.unsafe(`grant connect on database "${dbName}" to ${ROLE}`);
-  await owner.unsafe(`grant usage on schema public to ${ROLE}`);
-  await owner.unsafe(`grant select, insert, update, delete on all tables in schema public to ${ROLE}`);
-  await owner.unsafe(`grant usage on all sequences in schema public to ${ROLE}`);
-  // 以后 owner 跑迁移建的新表自动授权
-  await owner.unsafe(`alter default privileges in schema public grant select, insert, update, delete on tables to ${ROLE}`);
-  await owner.unsafe(`alter default privileges in schema public grant usage on sequences to ${ROLE}`);
+  for (const stmt of appRoleGrants(dbName, ROLE)) await owner.unsafe(stmt);
   console.log(`role ${ROLE} ${exists ? "rotated" : "created"} on db=${dbName}`);
 } finally {
   await owner.end();

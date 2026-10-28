@@ -126,9 +126,10 @@ describe("预约刷量", () => {
     const { gateway } = fauxGateway();
     const bookings = new InMemoryBookingStore();
     const ctx = { shop: demoShop, conversationId: "c1", channel: "web", gateway, calendar: new InMemoryCalendar(() => null), bookings, images: new Map(), locale: "en" as const };
-    const args = { customerName: "A", contact: "0400", serviceId: "bath-tidy", start: "2026-11-03T10:00", pet: { species: "dog" } };
-    for (let i = 0; i < LIMITS.pendingBookingsPerConversation; i++) expect((await holdBookingTool.run(args, ctx)).isError).toBeFalsy();
-    const r = await holdBookingTool.run(args, ctx);
+    // 每次换个时段：同一时段重复调用会被查重合并，测不到上限
+    const args = (i: number) => ({ customerName: "A", contact: "0400", serviceId: "bath-tidy", start: `2026-11-03T${String(10 + i).padStart(2, "0")}:00`, pet: { species: "dog" } });
+    for (let i = 0; i < LIMITS.pendingBookingsPerConversation; i++) expect((await holdBookingTool.run(args(i), ctx)).isError).toBeFalsy();
+    const r = await holdBookingTool.run(args(LIMITS.pendingBookingsPerConversation), ctx);
     expect(r.isError).toBe(true);
     expect(await bookings.countPendingForConversation("c1")).toBe(LIMITS.pendingBookingsPerConversation);
   });
