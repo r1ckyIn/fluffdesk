@@ -213,6 +213,7 @@ describe("groomer routes", () => {
     expect(stored).toMatchObject({ shopSlug: "s1", kind: "quote" });
     expect(stored?.id).not.toBe("forged");
     expect(stored?.createdAt).not.toBe("1999");
+    expect((await app.request("/groomer/s1/corrections", json({ kind: "reply", conversationId: "  ", by: "g" }, auth))).status).toBe(400);
     await app.request("/groomer/s1/corrections", json({ kind: "reply", conversationId: "c2", by: "g" }, auth));
     const mine = await jsonOf(await app.request("/groomer/s1/corrections?conversationId=c", { headers: auth }));
     expect(mine.items.map((x: { conversationId: string }) => x.conversationId)).toEqual(["c"]);

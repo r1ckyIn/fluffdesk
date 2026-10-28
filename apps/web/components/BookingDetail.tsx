@@ -23,7 +23,9 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
   const [flash, setFlash] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   // null = 还没拿到；"error" = 拿失败了。失败不能画成"那天没冲突"，这条信息直接影响要不要确认
   const [confirmed, setConfirmed] = useState<Booking[] | null | "error">(null);
-  const [corrections, setCorrections] = useState<Correction[]>([]);
+  // null = 还没拿到；"error" = 拿失败了。失败不能画成"还没纠正过"，不然会重复提交同一条修正
+  const [corrections, setCorrections] = useState<Correction[] | null | "error">(null);
+  const [correctionsTry, setCorrectionsTry] = useState(0);
   const [photos, setPhotos] = useState<string[]>([]);
   const readOnly = booking.status !== "pending";
 
@@ -49,13 +51,21 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
     setDeclining(false);
     setFlash(null);
     setPhotos([]);
-    setCorrections([]); // 换了一条就清掉上一条的"已纠正"，等这条自己的回来
+    setCorrections(null); // 换了一条就清掉上一条的"已纠正"，等这条自己的回来
     let alive = true;
-    api.corrections(session, booking.conversationId).then((mine) => alive && setCorrections(mine)).catch(() => {});
+    api
+      .corrections(session, booking.conversationId)
+      // 服务端已按会话过滤，这里再过一遍是给 web 先于 api 发版时兜底；本地刚提交的乐观条目要保留，别被迟到的响应盖掉
+      .then((mine) => alive && setCorrections((cur) => [...mine.filter((c) => c.conversationId === booking.conversationId), ...(Array.isArray(cur) ? cur.filter((c) => c.id.startsWith("local_")) : [])]))
+      .catch((e) => {
+        if (!alive) return;
+        setCorrections("error");
+        reportError(e);
+      });
     return () => {
       alive = false;
     };
-  }, [session, booking.id, booking.conversationId]);
+  }, [session, booking.id, booking.conversationId, reportError, correctionsTry]);
 
   async function decide(status: "confirmed" | "declined", reason?: string, alternatives?: string[]) {
     if (busy) return;
@@ -76,7 +86,8 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
 
   // 标题最多两行：人名 + 宠物名；品种放到副标题里
   const petLine = booking.pet.name ?? "";
-  const done = { pet: corrections.some((c) => c.kind === "pet_identification"), quote: corrections.some((c) => c.kind === "quote") };
+  const known = Array.isArray(corrections) ? corrections : [];
+  const done = { pet: known.some((c) => c.kind === "pet_identification"), quote: known.some((c) => c.kind === "quote") };
 
   return (
     <article className="enter" key={booking.id}>
@@ -162,7 +173,15 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
 
       <section className="section">
         <h2>{t("correct.pet")} / {t("correct.quote")}</h2>
-        <CorrectionForms booking={booking} done={done} onDone={(kind) => setCorrections((c) => [...c, { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId: booking.conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }])} />
+        {corrections === "error" ? (
+          <p className="notice notice-bad">
+            {t("correct.loadError")} <button type="button" className="btn btn-quiet" onClick={() => setCorrectionsTry((n) => n + 1)}>{t("error.retry")}</button>
+          </p>
+        ) : corrections === null ? (
+          <p className="muted">{t("correct.loading")}</p>
+        ) : (
+          <CorrectionForms booking={booking} done={done} onDone={(kind) => setCorrections((c) => [...(Array.isArray(c) ? c : []), { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId: booking.conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }])} />
+        )}
       </section>
 
       <section className="section">

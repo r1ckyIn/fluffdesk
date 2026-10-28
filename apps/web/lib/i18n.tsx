@@ -28,6 +28,8 @@ const STRINGS = {
   "history.empty": { en: "Nothing decided yet.", zh: "还没有处理过的预约。" },
   "history.failed": { en: "Couldn't load the history.", zh: "已处理列表没加载出来。" },
   "error.retry": { en: "Retry", zh: "重试" },
+  "correct.loading": { en: "Checking earlier corrections…", zh: "正在查之前的修正…" },
+  "correct.loadError": { en: "Couldn't load earlier corrections, so the forms are hidden to avoid a duplicate.", zh: "之前的修正没加载出来，为避免重复提交先不显示表单。" },
   "detail.dayLoading": { en: "Checking that day's confirmed bookings…", zh: "正在查那天已确认的预约…" },
   "detail.dayError": { en: "Couldn't load that day's confirmed bookings, so clashes can't be checked and confirming is off until they load.", zh: "那天的已确认预约没加载出来，查不了冲突，加载出来之前不能确认。" },
   "list.back": { en: "Back to the list", zh: "返回列表" },

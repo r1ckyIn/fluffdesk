@@ -1,6 +1,6 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode, useRef } from "react";
 import { Shell } from "@/components/Shell";
 import { api, ApiError } from "@/lib/api";
 import { GroomerContext } from "@/lib/groomer-context";
@@ -35,15 +35,18 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
     router.replace("/groomer");
   }, [router]);
 
+  // t 每切一次语言就是新函数；onError 通过 ref 取它，自己保持稳定，不然依赖它的页面（历史页的 load）会在切语言时重拉
+  const tRef = useRef(t);
+  tRef.current = t;
   const onError = useCallback(
     (e: unknown) => {
       if (e instanceof ApiError && e.status === 401) {
         signOut();
         return;
       }
-      setError(e instanceof ApiError ? e.message : t("error.generic"));
+      setError(e instanceof ApiError ? e.message : tRef.current("error.generic"));
     },
-    [signOut, t],
+    [signOut],
   );
 
   const notify = useCallback((text: string) => {

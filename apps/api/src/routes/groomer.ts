@@ -125,7 +125,7 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     const rt = c.get("rt");
     const body = await c.req.json<Record<string, unknown>>().catch(() => ({}) as Record<string, unknown>);
     if (!CORRECTION_KINDS.has(body.kind as Correction["kind"])) return c.json({ error: "kind must be pet_identification|quote|reply" }, 400);
-    if (typeof body.conversationId !== "string" || typeof body.by !== "string") return c.json({ error: "conversationId and by required" }, 400);
+    if (typeof body.conversationId !== "string" || !body.conversationId.trim() || typeof body.by !== "string") return c.json({ error: "conversationId and by required" }, 400);
     const correction: Correction = {
       id: `cor_${randomUUID()}`,
       shopSlug: c.req.param("shop"),
@@ -146,7 +146,7 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
   routes.get("/:shop/corrections", async (c) => {
     const conversationId = c.req.query("conversationId");
     const all = await c.get("rt").corrections.list(c.req.param("shop"));
-    return c.json({ items: conversationId ? all.filter((x) => x.conversationId === conversationId) : all });
+    return c.json({ items: conversationId !== undefined ? all.filter((x) => x.conversationId === conversationId) : all });
   });
 
   routes.get("/:shop/shop", (c) => c.json({ shop: c.get("shop") }));

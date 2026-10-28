@@ -50,6 +50,7 @@ MUTATIONS=(
   'apps/api/src/routes/groomer.ts@@s/ || !limits.groomerAuthAll.take("all")//@@猜令牌换 IP 就没有全站上限'
   'packages/db/src/stores/shops.ts@@s/const cfg = validateShopConfig(config);/const cfg = parseShopConfig(config);/g@@Postgres 写边界不查引用完整性'
   'packages/core/src/booking/ports.ts@@s/ || b.createdAt.localeCompare(a.createdAt)//@@历史列表平手时次序随机'
+  'packages/db/src/stores/bookings.ts@@s/, desc(bookings.createdAt))/)/@@Postgres 版历史列表平手时次序随机'
 )
 
 files=()

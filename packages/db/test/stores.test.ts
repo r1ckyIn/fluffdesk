@@ -242,6 +242,18 @@ describe("PgBookingStore", () => {
     expect(await bookings.listByStatus("s1", ["confirmed", "declined"], 1)).toHaveLength(1);
     expect(await bookings.listByStatus("s2", ["confirmed", "declined"])).toHaveLength(0);
   });
+  it("same-instant decisions list newest-created first, like the in-memory store", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-tie" }, "en");
+    const frozen = new Date("2026-10-29T00:00:00Z");
+    const store = new PgBookingStore(db, undefined, () => frozen);
+    const older = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-07T09:00" });
+    const newer = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-07T10:00" });
+    await store.decide(older.id, { status: "confirmed", by: "g" });
+    await store.decide(newer.id, { status: "declined", by: "g" });
+    const ids = (await bookings.listByStatus("s1", ["confirmed", "declined"])).map((b) => b.id);
+    expect(ids.indexOf(newer.id)).toBeLessThan(ids.indexOf(older.id));
+    expect(ids.indexOf(older.id)).toBe(ids.indexOf(newer.id) + 1);
+  });
   it("two groomers deciding at once: exactly one wins", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-race" }, "en");
     const b = await bookings.createPending(pendingInput(conv));
