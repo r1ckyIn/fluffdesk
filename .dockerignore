@@ -8,3 +8,4 @@ node_modules
 imports
 packages/eval/runs
 packages/eval/datasets/shops/*.draft.json
+**/*.tsbuildinfo
