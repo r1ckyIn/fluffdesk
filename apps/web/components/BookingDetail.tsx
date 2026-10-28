@@ -40,32 +40,36 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
       .catch((e) => {
         if (!alive) return;
         setConfirmed("error");
-        reportError(e);
+        if (e instanceof ApiError && e.status === 401) reportError(e); // 这一节自己显示错误，只有 401 要交给布局退出
       });
     return () => {
       alive = false;
     };
   }, [session, booking.id, booking.start, reportError, dayTry]);
 
+  // 换了一条：收起拒绝面板、清提示和照片。只跟着 booking.id 走，重试别的区块不会碰到这里
   useEffect(() => {
     setDeclining(false);
     setFlash(null);
     setPhotos([]);
-    setCorrections(null); // 换了一条就清掉上一条的"已纠正"，等这条自己的回来
+  }, [booking.id]);
+
+  // 这段会话之前的修正：拿到之前不显示表单。服务端已按会话过滤，再过一遍是给 web 先于 api 发版时兜底
+  useEffect(() => {
     let alive = true;
+    setCorrections(null);
     api
       .corrections(session, booking.conversationId)
-      // 服务端已按会话过滤，这里再过一遍是给 web 先于 api 发版时兜底；本地刚提交的乐观条目要保留，别被迟到的响应盖掉
-      .then((mine) => alive && setCorrections((cur) => [...mine.filter((c) => c.conversationId === booking.conversationId), ...(Array.isArray(cur) ? cur.filter((c) => c.id.startsWith("local_")) : [])]))
+      .then((mine) => alive && setCorrections(mine.filter((c) => c.conversationId === booking.conversationId)))
       .catch((e) => {
         if (!alive) return;
         setCorrections("error");
-        reportError(e);
+        if (e instanceof ApiError && e.status === 401) reportError(e);
       });
     return () => {
       alive = false;
     };
-  }, [session, booking.id, booking.conversationId, reportError, correctionsTry]);
+  }, [session, booking.conversationId, reportError, correctionsTry]);
 
   async function decide(status: "confirmed" | "declined", reason?: string, alternatives?: string[]) {
     if (busy) return;
@@ -180,7 +184,7 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
         ) : corrections === null ? (
           <p className="muted">{t("correct.loading")}</p>
         ) : (
-          <CorrectionForms booking={booking} done={done} onDone={(kind) => setCorrections((c) => [...(Array.isArray(c) ? c : []), { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId: booking.conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }])} />
+          <CorrectionForms booking={booking} done={done} onDone={(kind) => setCorrections((c) => [...(c as Correction[]), { id: `local_${Date.now()}`, shopSlug: shop.slug, conversationId: booking.conversationId, kind: kind === "pet" ? "pet_identification" : "quote", original: null, corrected: null, by: session.name, createdAt: new Date().toISOString() }])} />
         )}
       </section>
 

@@ -9,6 +9,7 @@ import { DASH, t2 } from "@/lib/format";
 /**
  * 两张小卡：纠正识图、纠正报价。提交进 corrections 表，变成 eval 用例。
  * 不改预约本身：报价是给客人的承诺区间，改了也得先让客人知道，这一步留给以后的"重新报价"。
+ * 一段会话每类修正只收一次：已纠正过就只剩标签，按钮关掉，免得 eval 集里出现重复条目。
  */
 export function CorrectionForms({ booking, done, onDone }: { booking: Booking; done: { pet: boolean; quote: boolean }; onDone: (kind: "pet" | "quote") => void }) {
   return (
@@ -71,7 +72,7 @@ function PetCorrection({ booking, done, onDone }: { booking: Booking; done: bool
         </label>
       </div>
       <div className="foot">
-        <button className="btn btn-outline" disabled={busy || !changed}>{t("correct.save")}</button>
+        <button className="btn btn-outline" disabled={busy || !changed || done}>{t("correct.save")}</button>
         {msg && <span className="muted small">{msg}</span>}
       </div>
     </form>
@@ -120,7 +121,7 @@ function QuoteCorrection({ booking, done, onDone }: { booking: Booking; done: bo
         </label>
       </div>
       <div className="foot">
-        <button className="btn btn-outline" disabled={busy || !valid || !changed}>{t("correct.save")}</button>
+        <button className="btn btn-outline" disabled={busy || !valid || !changed || done}>{t("correct.save")}</button>
         {msg && <span className="muted small">{msg}</span>}
       </div>
     </form>

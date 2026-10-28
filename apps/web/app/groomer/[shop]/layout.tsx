@@ -1,6 +1,6 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState, type ReactNode, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Shell } from "@/components/Shell";
 import { api, ApiError } from "@/lib/api";
 import { GroomerContext } from "@/lib/groomer-context";
@@ -18,7 +18,8 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
   const [session, setSession] = useState<GroomerSession | null | undefined>(undefined);
   const [shop, setShop] = useState<ShopConfig | null>(null);
   const [pending, setPending] = useState<Booking[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // 存键或原文，渲染时再翻译：切语言横幅跟着变，onError 也不用依赖 t
+  const [error, setError] = useState<{ key: "error.generic" } | { message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,16 +36,13 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
     router.replace("/groomer");
   }, [router]);
 
-  // t 每切一次语言就是新函数；onError 通过 ref 取它，自己保持稳定，不然依赖它的页面（历史页的 load）会在切语言时重拉
-  const tRef = useRef(t);
-  tRef.current = t;
   const onError = useCallback(
     (e: unknown) => {
       if (e instanceof ApiError && e.status === 401) {
         signOut();
         return;
       }
-      setError(e instanceof ApiError ? e.message : tRef.current("error.generic"));
+      setError(e instanceof ApiError ? { message: e.message } : { key: "error.generic" });
     },
     [signOut],
   );
@@ -103,7 +101,7 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
   if (session === undefined || session === null) return null;
   return (
     <Shell session={session} shop={shop} pendingCount={pending?.length ?? 0}>
-      {error && <div className="notice notice-bad" role="alert" style={{ margin: "var(--space-4) var(--space-5) 0" }}>{error}</div>}
+      {error && <div className="notice notice-bad" role="alert" style={{ margin: "var(--space-4) var(--space-5) 0" }}>{"key" in error ? t(error.key) : error.message}</div>}
       {notice && <div className="notice notice-ok" role="status" style={{ margin: "var(--space-4) var(--space-5) 0" }}>{notice}</div>}
       {value ? <GroomerContext.Provider value={value}>{children}</GroomerContext.Provider> : null}
     </Shell>

@@ -18,7 +18,7 @@ export class PgBookingStore implements BookingStore {
   async createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking> {
     const [row] = await this.db
       .insert(bookings)
-      .values({ id: this.newId(), status: "pending", ...toColumns(input) })
+      .values({ id: this.newId(), status: "pending", createdAt: this.now(), ...toColumns(input) })
       .onConflictDoNothing({ target: [bookings.conversationId, bookings.serviceId, bookings.start], where: sql`${bookings.status} = 'pending'` })
       .returning();
     if (row) return toBooking(row);

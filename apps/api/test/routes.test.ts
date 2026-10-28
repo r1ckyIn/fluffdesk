@@ -214,11 +214,13 @@ describe("groomer routes", () => {
     expect(stored?.id).not.toBe("forged");
     expect(stored?.createdAt).not.toBe("1999");
     expect((await app.request("/groomer/s1/corrections", json({ kind: "reply", conversationId: "  ", by: "g" }, auth))).status).toBe(400);
+    expect((await app.request("/groomer/s1/corrections", json({ kind: "reply", conversationId: "c", by: "  " }, auth))).status).toBe(400);
     await app.request("/groomer/s1/corrections", json({ kind: "reply", conversationId: "c2", by: "g" }, auth));
     const mine = await jsonOf(await app.request("/groomer/s1/corrections?conversationId=c", { headers: auth }));
     expect(mine.items.map((x: { conversationId: string }) => x.conversationId)).toEqual(["c"]);
     const listed = await jsonOf(await app.request("/groomer/s1/corrections", { headers: auth }));
     expect(listed.items).toHaveLength(2);
+    expect((await jsonOf(await app.request("/groomer/s1/corrections?conversationId=", { headers: auth }))).items).toEqual([]); // 给了参数就按它过滤，空串不等于不过滤
   });
 });
 
