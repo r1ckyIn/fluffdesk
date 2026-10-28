@@ -63,7 +63,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 录制回放：eval 集 24 条用真模型录制，CI 回放
 - [ ] eval 集加真实客人案例（老板导出私信后）；一直全绿的用例降频
 - [ ] 模型评审和人工打分对齐（75% 以上），再启用 judge
-- [ ] 自建 `.claude/skills/test-review`：把 ADR 的"不做什么"做成 PR 前的 review 清单，守测试的写法（CI 只能守结果）
+- [x] 自建 `.claude/skills/test-review`（守测试写法）和 `.claude/skills/pr-review`（审查循环，ADR 0002）
 - [ ] 新加核心逻辑时同步往 `scripts/mutate.sh` 加变异，否则护栏没人验
 - [ ] 改抽取或合并逻辑后，用 Fenny & Jacks 重跑当回归（七个服务、六档价目、营业时间周一到周六）
 

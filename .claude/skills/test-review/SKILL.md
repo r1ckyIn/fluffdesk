@@ -1,16 +1,19 @@
 ---
 name: test-review
 description: 开 PR 前按 fluffdesk 的测试策略（docs/adr/0001）审一遍改动：新护栏有没有契约测试、新核心逻辑有没有配变异、测试是不是在抄实现或 mock 被测对象、改了提示词有没有重录回放、工具结果有没有引入随机值。CI 只能守结果，这个 skill 守写法。改了 packages/core、packages/eval、提示词或测试之后用。
-argument-hint: "[对比的基准分支，默认 origin/main]"
+argument-hint: "[对比的基准，默认 origin/main] [--scores \"test n/n · mutate n/n · replay n/n\"]"
+context: fork
+agent: general-purpose
+background: false
 allowed-tools: Bash(git diff *), Bash(git status *), Bash(git log *), Bash(npm test), Bash(npm run test:mutate), Bash(npm run eval -- quote --replay), Read, Grep, Glob
 ---
 
 # 测试写法审查
 
-基准分支：`$ARGUMENTS`（空则用 `origin/main`）。本次改动的文件：
+参数：`$ARGUMENTS`。第一个词是基准（空则用 `origin/main`）；`--scores "..."` 是调用方（通常是 `/pr-review`）刚跑过的门禁结果。这个 skill 在独立的子代理里跑，看不到写代码的那段对话，只看仓库和 diff，这是有意的：作者不审自己。本次改动的文件：
 
 ```!
-base="$ARGUMENTS"; base="${base:-origin/main}"; echo "base: $base"; git diff --stat "$base"...HEAD
+set -- $ARGUMENTS; base="${1:-origin/main}"; case "$base" in --scores) base=origin/main;; esac; echo "base: $base"; git diff --stat "$base"...HEAD
 ```
 
 先读 `docs/adr/0001-testing-strategy.md` 的"决定"和"不做什么"两节，再按下面十条逐一核对。每条都要给出结论和证据（文件:行），没涉及的写"不涉及"。
@@ -40,7 +43,7 @@ base="$ARGUMENTS"; base="${base:-origin/main}"; echo "base: $base"; git diff --s
 
 ## 三、实际跑一遍
 
-检查完条目后依次跑，把结果贴进报告：
+参数里带了 `--scores` 就直接引用那组数字，不重跑（mutate 一轮四分钟，机器内存紧）。没带才依次跑，把结果贴进报告：
 
 ```
 npm test
