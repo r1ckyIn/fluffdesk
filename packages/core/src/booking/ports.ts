@@ -54,7 +54,7 @@ export class InMemoryBookingStore implements BookingStore {
   }
   async updatePending(id: string, input: Omit<Booking, "id" | "status" | "createdAt">) {
     const b = this.items.get(id);
-    if (!b) throw new BookingStateError(`booking not found: ${id}`);
+    if (!b || b.conversationId !== input.conversationId) throw new BookingStateError(`booking not found: ${id}`);
     if (b.status !== "pending") throw new BookingStateError(`booking ${id} already ${b.status}`);
     Object.assign(b, input, { status: "pending" });
     return b;

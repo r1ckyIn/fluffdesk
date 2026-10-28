@@ -34,11 +34,13 @@ export class PgBookingStore implements BookingStore {
     const [row] = await this.db
       .update(bookings)
       .set(toColumns(input))
-      .where(and(eq(bookings.id, id), eq(bookings.status, "pending")))
+      // 带上会话 id：拿着外来 id 也改不到别的会话的预约
+      .where(and(eq(bookings.id, id), eq(bookings.conversationId, input.conversationId), eq(bookings.status, "pending")))
       .returning();
     if (row) return toBooking(row);
     const existing = await this.get(id);
-    if (!existing) throw new BookingStateError(`booking not found: ${id}`);
+    // 别的会话的预约对这个会话来说就是不存在
+    if (!existing || existing.conversationId !== input.conversationId) throw new BookingStateError(`booking not found: ${id}`);
     throw new BookingStateError(`booking ${id} already ${existing.status}`);
   }
 

@@ -36,7 +36,16 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 
 ## TODO
 
-按优先级排。打勾的是做完并验证过的。
+打勾的是做完并验证过的。
+
+### 下一步的顺序（2026-10-28 定）
+1. Fly 部署 api + Vercel 部署 web：Instagram/WhatsApp 的 webhook 验证和 Web Push 都要公网 HTTPS，没有它后面两步做不了；配置和镜像已验证，剩装 flyctl、放两个连接串、`fly deploy`
+2. 美容师端：待确认列表、一键确认/拒绝、magic link 登录换掉共享 token。没有这个 demo 给店主看不完整
+3. Instagram 和 WhatsApp 收发消息；Meta 应用审核要排队，和第 2 步并行提交
+4. PR 级 e2e（Neon 分支）：API key 和 NEON_PROJECT_ID 已在 GitHub，等冒烟脚本
+5. 模型评审和人工打分对齐：等有真客人对话再做，对着假数据对齐没意义
+
+下面按模块分。
 
 ### 导入器（销售第一段：免费 demo）
 - [x] 抽取器：strict tool use + 本地校验 + 原文核对，三次重试

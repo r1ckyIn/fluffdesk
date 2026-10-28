@@ -173,6 +173,8 @@ describe("PgBookingStore", () => {
     expect(await bookings.listPendingForConversation(conv.id)).toHaveLength(1);
     const updated = await bookings.updatePending(a.id, { ...pendingInput(conv), customer: { name: "Amy", contact: "0411", channel: "web" } });
     expect(updated).toMatchObject({ id: a.id, status: "pending", customer: { contact: "0411" } });
+    const stranger = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-stranger" }, "en");
+    await expect(bookings.updatePending(a.id, pendingInput(stranger))).rejects.toThrow(/not found/);
     await bookings.decide(a.id, { status: "declined", by: "g" });
     await expect(bookings.updatePending(a.id, pendingInput(conv))).rejects.toThrow(/already declined/);
     // 决定过的不占槽位：同时段可以再挂一条新的待确认
