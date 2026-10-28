@@ -17,7 +17,7 @@ export interface InboundMessage {
 export async function handleInbound(rt: Runtime, msg: InboundMessage): Promise<TurnResult> {
   const shop = rt.shops.get(msg.shopSlug);
   if (!shop) throw new Error(`unknown shop ${msg.shopSlug}`);
-  const key = `${msg.shopSlug}:${msg.channel}:${msg.externalId}`;
+  const key = conversationKey(msg);
   let conv = rt.conversations.get(key);
   if (!conv) {
     conv = newConversation({ id: key, shopSlug: shop.slug, channel: msg.channel, locale: msg.locale ?? detectLocale(msg.input.text) });
@@ -40,6 +40,10 @@ export function detectLocale(text?: string): "en" | "zh" {
   return text && /[一-鿿]/.test(text) ? "zh" : "en";
 }
 
+export function conversationKey(msg: Pick<InboundMessage, "shopSlug" | "channel" | "externalId">): string {
+  return `${msg.shopSlug}:${msg.channel}:${msg.externalId}`;
+}
+
 export function getConversation(rt: Runtime, msg: Pick<InboundMessage, "shopSlug" | "channel" | "externalId">): Conversation | undefined {
-  return rt.conversations.get(`${msg.shopSlug}:${msg.channel}:${msg.externalId}`);
+  return rt.conversations.get(conversationKey(msg));
 }

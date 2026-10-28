@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 import { createGateway } from "@fluffdesk/core";
 import { EVAL_ROOT, loadDataset, loadShops, runCase, type CaseResult, type Mode } from "./runner.js";
 
@@ -13,13 +14,14 @@ import { EVAL_ROOT, loadDataset, loadShops, runCase, type CaseResult, type Mode 
  *   npm run eval -- quote --dry           只校验数据集格式
  * 结果写到 runs/<dataset>-<时间>.json，拿来和上一次比。
  */
-const argv = process.argv.slice(2);
-const name = argv.find((a) => !a.startsWith("--"));
-const flag = (f: string) => argv.includes(f);
-const runsArg = argv.indexOf("--runs");
-const runs = runsArg >= 0 ? Number(argv[runsArg + 1] ?? "1") : 1;
-const onlyArg = argv.indexOf("--only");
-const only = onlyArg >= 0 ? new Set((argv[onlyArg + 1] ?? "").split(",")) : undefined;
+const { values: opts, positionals } = parseArgs({
+  args: process.argv.slice(2),
+  allowPositionals: true,
+  options: { record: { type: "boolean" }, replay: { type: "boolean" }, dry: { type: "boolean" }, runs: { type: "string" }, only: { type: "string" } },
+});
+const name = positionals[0];
+const runs = Math.max(1, Number(opts.runs ?? "1") || 1);
+const only = opts.only ? new Set(opts.only.split(",")) : undefined;
 if (!name) {
   console.error("usage: npm run eval -- <dataset> [--record|--replay] [--runs k] [--dry]");
   process.exit(2);
@@ -27,17 +29,19 @@ if (!name) {
 
 const cases = loadDataset(name).filter((c) => !only || only.has(c.id));
 const shops = loadShops();
-if (flag("--dry")) {
+if (opts.dry) {
   for (const c of cases) if (!shops[c.shop]) throw new Error(`${c.id}: unknown shop ${c.shop}`);
   console.log(`${cases.length} cases ok`);
   process.exit(0);
 }
 
-const mode: Mode = flag("--replay") ? { kind: "replay", dataset: name } : { kind: "live", record: flag("--record") ? name : undefined };
+const mode: Mode = opts.replay ? { kind: "replay", dataset: name } : { kind: "live", record: opts.record ? name : undefined };
 const live = mode.kind === "live" ? createGateway() : undefined;
 const summary: Array<CaseResult & { runs: number; passedRuns: number }> = [];
 
 for (const c of cases) {
+  // pass^k：保留第一个失败的那轮，没失败就留最后一轮。只留最后一轮的话，flaky 的失败看不到是哪条 check 挂的
+  let shown: CaseResult | undefined;
   let last: CaseResult | undefined;
   let passedRuns = 0;
   let cost = 0;
@@ -45,11 +49,13 @@ for (const c of cases) {
     last = await runCase(c, shops, mode, live);
     cost += last.costUsd;
     if (last.pass) passedRuns++;
+    else shown ??= last;
   }
+  const result = shown ?? last!;
   const pass = passedRuns === runs;
-  summary.push({ ...last!, pass, costUsd: cost, runs, passedRuns });
+  summary.push({ ...result, pass, costUsd: cost, runs, passedRuns });
   console.log(`${pass ? "PASS" : "FAIL"} ${c.id}${runs > 1 ? `  ${passedRuns}/${runs}` : ""}  $${cost.toFixed(4)}`);
-  if (!pass) for (const k of last!.checks) if (!k.pass) console.log(`     x ${k.name}${k.detail ? `: ${k.detail}` : ""}`);
+  if (!pass) for (const k of result.checks) if (!k.pass) console.log(`     x ${k.name}${k.detail ? `: ${k.detail}` : ""}`);
 }
 
 const passed = summary.filter((s) => s.pass).length;

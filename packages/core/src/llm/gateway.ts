@@ -46,6 +46,11 @@ const DEFAULT_ROLES: Record<ModelRole, string> = {
   fallback: "deepseek/deepseek-v4-pro",
 };
 
+/** 角色现在配置的是哪个模型（provider/id），不碰 provider、不要 key。回放指纹用它判断"换了模型要重录" */
+export function resolveModelSpec(role: ModelRole, env: Record<string, string | undefined> = process.env): string {
+  return env[`FLUFF_${role.toUpperCase()}_MODEL`] ?? DEFAULT_ROLES[role];
+}
+
 export function createGateway(init: GatewayInit = {}): Gateway {
   const env = init.env ?? process.env;
   const models = init.models ?? defaultModels();

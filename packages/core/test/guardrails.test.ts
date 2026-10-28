@@ -1,25 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { Type, createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
+import { Type, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { ToolRegistry, defineTool, type ToolContext } from "../src/tools/registry.js";
 import { defaultTools, quoteTool, identifyPetTool, holdBookingTool } from "../src/tools/index.js";
 import { InMemoryBookingStore, InMemoryCalendar } from "../src/booking/ports.js";
-import { createGateway } from "../src/llm/gateway.js";
-import { demoShop } from "./fixtures.js";
+import { demoShop, fauxGateway } from "./fixtures.js";
 
 /**
  * CLAUDE.md 里的规矩在代码上的护栏。变异测试发现这几条原来只有类型和提示词守着，
  * 改坏了测试照样全绿，所以单独立一组。
  */
 function ctx(overrides: Partial<ToolContext> = {}): ToolContext {
-  const faux = fauxProvider();
-  const models = createModels();
-  models.setProvider(faux.provider);
-  const m = faux.getModel();
   return {
     shop: demoShop,
     conversationId: "c",
     channel: "test",
-    gateway: createGateway({ models, roleModels: { chat: m, vision: m, judge: m, fallback: m } }),
+    gateway: fauxGateway().gateway,
     calendar: new InMemoryCalendar(() => ({ open: "09:00", close: "17:00" })),
     bookings: new InMemoryBookingStore(),
     images: new Map(),
@@ -92,12 +87,9 @@ describe("识图边界", () => {
     expect(r.isError).toBe(true);
   });
   it("unparseable vision output returns an error result instead of throwing", async () => {
-    const faux = fauxProvider();
-    const models = createModels();
-    models.setProvider(faux.provider);
-    const m = faux.getModel();
+    const { faux, gateway } = fauxGateway();
     faux.setResponses([fauxAssistantMessage([fauxText("I think it is a dog")])]);
-    const c = ctx({ gateway: createGateway({ models, roleModels: { chat: m, vision: m, judge: m, fallback: m } }), images: new Map([["img_1", { data: "", mimeType: "image/png" }]]) });
+    const c = ctx({ gateway, images: new Map([["img_1", { data: "", mimeType: "image/png" }]]) });
     const r = await identifyPetTool.run({ imageId: "img_1" }, c);
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/could not parse/);

@@ -6,6 +6,7 @@ import {
   InMemoryBookingStore, InMemoryCalendar, Tracer,
   type Conversation, type Gateway, type ShopConfig, type BookingStore, type TraceSink, type Correction,
 } from "@fluffdesk/core";
+import { BoundedStore, RateLimiter } from "./ratelimit.js";
 
 /**
  * 进程级依赖。现在全是内存实现，接 Postgres 时只换这里，路由不动。
@@ -14,9 +15,10 @@ import {
 export interface Runtime {
   gateway: Gateway;
   shops: { get(slug: string): ShopConfig | undefined; list(): ShopConfig[] };
-  conversations: Map<string, Conversation>;
+  conversations: BoundedStore<Conversation>;
   bookings: BookingStore;
   corrections: Correction[];
+  limits: { perIp: RateLimiter; perSession: RateLimiter };
   traceSinks: TraceSink[];
   newTracer(conversationId: string): Tracer;
   calendarFor(shop: ShopConfig): InMemoryCalendar;
@@ -35,9 +37,11 @@ export function createRuntime(): Runtime {
   return {
     gateway: createGateway(),
     shops: { get: (slug) => shops.get(slug), list: () => [...shops.values()] },
-    conversations: new Map(),
+    // 会话最多 5000 个、24 小时没动就丢；公网 sessionId 是客人自己定的，不能无限收
+    conversations: new BoundedStore<Conversation>(5000, 24 * 60 * 60 * 1000),
     bookings,
     corrections: [],
+    limits: { perIp: new RateLimiter(60, 60_000), perSession: new RateLimiter(20, 60_000) },
     traceSinks,
     newTracer: (id) => new Tracer(id, traceSinks),
     calendarFor: (shop) =>

@@ -1,4 +1,15 @@
+import { createModels, fauxProvider } from "@earendil-works/pi-ai";
+import { createGateway } from "../src/llm/gateway.js";
 import { parseShopConfig } from "../src/shop/schema.js";
+
+/** faux provider 只用来喂模型回复，四个角色都指向同一个 faux 模型 */
+export function fauxGateway() {
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  const model = faux.getModel();
+  return { faux, model, gateway: createGateway({ models, roleModels: { chat: model, vision: model, judge: model, fallback: model } }) };
+}
 
 export const demoShop = parseShopConfig({
   slug: "fluffy-paws-newtown",

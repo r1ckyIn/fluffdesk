@@ -4,6 +4,7 @@ import type { ShopConfig } from "../shop/schema.js";
 import type { ToolContext, ToolRegistry } from "../tools/registry.js";
 import { ATTR, Tracer } from "../trace/tracer.js";
 import { buildSystemPrompt } from "./prompt.js";
+import { IMAGE_MIME_ALLOWLIST, LIMITS } from "./limits.js";
 
 /**
  * agent 循环。自己写的原因：要控制停止条件、每步的权限检查和轨迹，
@@ -28,7 +29,7 @@ export interface UserInput {
 
 export interface TurnResult {
   reply: string;
-  stop: "done" | "max_iterations" | "error";
+  stop: "done" | "max_iterations" | "error" | "limit";
   toolCalls: Array<{ name: string; args: unknown; outcomeText: string; isError: boolean; details?: unknown }>;
   traceId: string;
   costUsd: number;
@@ -59,15 +60,27 @@ export async function runTurn(deps: AgentDeps, conv: Conversation, input: UserIn
   const maxIterations = deps.maxIterations ?? 8;
   const turnSpan = tracer.start("agent.turn", { [ATTR.conversationId]: conv.id, [ATTR.shop]: deps.shop.slug, [ATTR.channel]: conv.channel });
 
+  // 会话太长就不再调模型，直接转人工。公网会话不能无限长
+  if (conv.messages.length >= LIMITS.messagesPerConversation) {
+    tracer.end(turnSpan, {}, "conversation message limit");
+    await tracer.finish();
+    return { reply: HANDOFF[conv.locale], stop: "limit", toolCalls: [], traceId: tracer.trace.id, costUsd: 0 };
+  }
+
   const content: Array<TextContent | ImageContent> = [];
-  if (input.text) content.push({ type: "text", text: input.text });
-  for (const img of input.images ?? []) {
+  if (input.text) content.push({ type: "text", text: input.text.slice(0, LIMITS.textChars) });
+  const accepted = (input.images ?? [])
+    .filter((img) => IMAGE_MIME_ALLOWLIST.has(img.mimeType) && img.data.length <= LIMITS.imageBase64Bytes)
+    .slice(0, Math.max(0, Math.min(LIMITS.imagesPerTurn, LIMITS.imagesPerConversation - conv.images.size)));
+  for (const img of accepted) {
     const id = `img_${conv.images.size + 1}`;
     conv.images.set(id, img);
     content.push({ type: "text", text: `[image attached, imageId=${id}]` });
     content.push({ type: "image", data: img.data, mimeType: img.mimeType });
   }
+  if (content.length === 0) content.push({ type: "text", text: "[empty message]" });
   conv.messages.push({ role: "user", content, timestamp: Date.now() });
+  pruneOldImages(conv.messages, LIMITS.imageTurnsKept);
 
   const toolCtx: ToolContext = {
     ...deps.toolContext,
@@ -162,6 +175,18 @@ async function executeTool(
   } catch (e) {
     tracer.end(span, {}, e);
     return { text: `tool error: ${(e as Error).message}`, isError: true };
+  }
+}
+
+/** 只保留最近 keep 轮用户消息里的图片，更早的换成文字占位。每轮都把全部历史发给模型，图片最贵 */
+export function pruneOldImages(messages: Message[], keep: number): void {
+  let seen = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role !== "user" || typeof m.content === "string") continue;
+    if (!m.content.some((c) => c.type === "image")) continue;
+    if (seen++ < keep) continue;
+    m.content = m.content.map((c) => (c.type === "image" ? { type: "text", text: "[image omitted from history]" } : c));
   }
 }
 

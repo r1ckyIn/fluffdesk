@@ -66,10 +66,18 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp Cloud API：同上
 
 ### 美容师端（PWA）
-- [ ] 登录（magic link）
+- [ ] 登录（magic link），替掉过渡期的共享 `GROOMER_API_TOKEN`，并把人绑到店
 - [ ] 待确认列表，一键确认/拒绝，拒绝给替代时间
 - [ ] 修正识图和报价
 - [ ] Web Push 通知，邮件兜底
+
+### 安全（PR #1 的安全审查发现，已修）
+- [x] 美容师端鉴权（过渡：Bearer token，没配 503）、修正记录按字段构造
+- [x] 聊天接口：请求体 7MB 上限、图片数量/类型/大小校验、sessionId 格式、每 IP 和每会话限流、错误不外泄
+- [x] 会话存储有界（5000 个、24 小时）、会话消息上限、旧图片裁掉
+- [x] 导入器防 SSRF、webhook 握手失败关闭并常数时间比较、CLI slug 校验、CORS 生产必须配、Dockerfile 非 root、CI 锁 SHA
+- [ ] WhatsApp / Instagram POST webhook 验签（接渠道时一起做）
+- [ ] DNS rebinding：上线后在 Fly 出口网络层再拦一道内网地址
 
 ### 数据与部署（下一个 session）
 - [ ] runtime.ts 从内存实现换成 @fluffdesk/db（Neon 悉尼区已建好，`npm run db:check -w packages/db` 能连上），跑一次 migration

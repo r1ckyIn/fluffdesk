@@ -10,6 +10,8 @@ export interface BookingStore {
   createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking>;
   get(id: string): Promise<Booking | undefined>;
   listPending(shopSlug: string): Promise<Booking[]>;
+  /** 一个会话已经挂了几个待确认预约，hold_booking 用它限流 */
+  countPendingForConversation(conversationId: string): Promise<number>;
   decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking>;
 }
 
@@ -33,6 +35,9 @@ export class InMemoryBookingStore implements BookingStore {
   }
   async listPending(shopSlug: string) {
     return [...this.items.values()].filter((b) => b.shopSlug === shopSlug && b.status === "pending");
+  }
+  async countPendingForConversation(conversationId: string) {
+    return [...this.items.values()].filter((b) => b.conversationId === conversationId && b.status === "pending").length;
   }
   async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }) {
     const b = this.items.get(id);

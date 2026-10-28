@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createModels, fauxProvider, type AssistantMessage, type Context, type Message } from "@earendil-works/pi-ai";
-import type { Gateway, GatewayCallOptions, ModelRole } from "./gateway.js";
+import { resolveModelSpec, type Gateway, type GatewayCallOptions, type ModelRole } from "./gateway.js";
 
 /**
  * 录制回放。真模型跑一遍把每次回复按"请求指纹"存下来，CI 里按指纹回放：
@@ -10,6 +10,8 @@ import type { Gateway, GatewayCallOptions, ModelRole } from "./gateway.js";
 export interface Recording {
   key: string;
   role: ModelRole;
+  /** 录制时该角色用的模型 provider/id */
+  model: string;
   /** 调试用：指纹是从哪些内容算出来的（截断） */
   summary: string;
   /** 完整的指纹输入，回放对不上时用来逐段比对 */
@@ -17,13 +19,22 @@ export interface Recording {
   response: AssistantMessage;
 }
 
-/** 指纹只看会影响模型回复的内容：角色、系统提示、工具名、每条消息的文本和图片摘要。时间戳不算 */
-export function requestKey(role: ModelRole, context: Context): { key: string; summary: string; parts: string[] } {
-  const parts: string[] = [role, context.systemPrompt ?? "", (context.tools ?? []).map((t) => t.name).join(",")];
+/** 指纹前几段的名字，nearestDiff 报差异用 */
+const HEAD_LABELS = ["role", "model", "systemPrompt", "tools"];
+
+/**
+ * 指纹只看会影响模型回复的内容：角色、模型、系统提示、工具定义（名字加描述和参数的摘要）、
+ * 每条消息的文本和图片摘要。时间戳不算。改了工具描述或换了模型，指纹就变，必须重录
+ */
+export function requestKey(role: ModelRole, model: string, context: Context): { key: string; summary: string; parts: string[] } {
+  const tools = (context.tools ?? []).map((t) => `${t.name}@${sha(JSON.stringify({ description: t.description, parameters: t.parameters })).slice(0, 8)}`);
+  const parts: string[] = [role, model, context.systemPrompt ?? "", tools.join(",")];
   for (const m of context.messages) parts.push(messageDigest(m));
-  const summary = parts.slice(3).join(" | ").slice(0, 200);
-  return { key: createHash("sha1").update(parts.join("\n")).digest("hex").slice(0, 16), summary, parts };
+  const summary = parts.slice(HEAD_LABELS.length).join(" | ").slice(0, 200);
+  return { key: sha(parts.join("\n")).slice(0, 16), summary, parts };
 }
+
+const sha = (s: string) => createHash("sha1").update(s).digest("hex");
 
 function messageDigest(m: Message): string {
   if (m.role === "user" || m.role === "toolResult") {
@@ -43,8 +54,10 @@ export function recordingGateway(inner: Gateway, sink: (rec: Recording) => void)
     model: inner.model,
     async complete(role, context, options) {
       const response = await inner.complete(role, context, options);
-      const { key, summary, parts } = requestKey(role, context);
-      sink({ key, role, summary, request: parts, response });
+      const m = inner.model(role);
+      const model = `${m.provider}/${m.id}`;
+      const { key, summary, parts } = requestKey(role, model, context);
+      sink({ key, role, model, summary, request: parts, response });
       return response;
     },
   };
@@ -65,12 +78,15 @@ function nearestDiff(parts: string[], recordings: Recording[]): string | undefin
     if (!best || idx > best.idx) best = { rec, idx };
   }
   if (!best || best.idx < 0) return undefined;
-  const label = ["role", "systemPrompt", "tools"][best.idx] ?? `message[${best.idx - 3}]`;
+  const label = HEAD_LABELS[best.idx] ?? `message[${best.idx - HEAD_LABELS.length}]`;
   return `closest recording ${best.rec.key} differs at ${label}:\n  recorded: ${best.rec.request[best.idx]?.slice(0, 300)}\n  now:      ${parts[best.idx]?.slice(0, 300)}\n`;
 }
 
-/** 只认录制过的请求。同一指纹录了多条时按顺序消费 */
-export function replayGateway(recordings: Recording[]): Gateway {
+/**
+ * 只认录制过的请求。同一指纹录了多条时按顺序消费。
+ * 指纹里的模型用"现在配置的模型"（环境变量或默认值）算，所以换了模型回放就对不上，逼着重录
+ */
+export function replayGateway(recordings: Recording[], modelFor: (role: ModelRole) => string = (r) => resolveModelSpec(r)): Gateway {
   const faux = fauxProvider();
   const models = createModels();
   models.setProvider(faux.provider);
@@ -81,7 +97,7 @@ export function replayGateway(recordings: Recording[]): Gateway {
     models,
     model: () => m,
     async complete(role: ModelRole, context: Context, _options?: GatewayCallOptions) {
-      const { key, summary, parts } = requestKey(role, context);
+      const { key, summary, parts } = requestKey(role, modelFor(role), context);
       const hits = queue.get(key);
       const rec = hits?.shift();
       if (!rec) throw new ReplayMissError(role, key, summary, nearestDiff(parts, recordings));

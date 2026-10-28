@@ -4,6 +4,7 @@ export * from "./llm/gateway.js";
 export * from "./llm/replay.js";
 export * from "./agent/loop.js";
 export * from "./agent/prompt.js";
+export * from "./agent/limits.js";
 export * from "./tools/registry.js";
 export * from "./tools/index.js";
 export * from "./booking/types.js";

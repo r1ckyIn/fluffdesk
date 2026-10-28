@@ -1,19 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { createGateway } from "../src/llm/gateway.js";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxGateway } from "./fixtures.js";
 import { extractShopDraft, verifyDraft, type Draft } from "../src/shop/importer/extract.js";
 import { importWebsite } from "../src/shop/importer/website.js";
 import { importGoogleBusiness, mapHours } from "../src/shop/importer/google.js";
 import { mergeDrafts, mergeServices, LOW_CONFIDENCE } from "../src/shop/importer/index.js";
 import { htmlToText, extractLinks } from "../src/shop/importer/html.js";
 
-function fauxGateway() {
-  const faux = fauxProvider();
-  const models = createModels();
-  models.setProvider(faux.provider);
-  const m = faux.getModel();
-  return { faux, gateway: createGateway({ models, roleModels: { chat: m, vision: m, judge: m, fallback: m } }) };
-}
+/** 假 DNS：测试里的域名不存在，安全抓取要先解析再放行 */
+const publicLookup = async () => ["93.184.216.34"];
 
 const SITE_HTML = `<html><head><title>Fluffy Paws</title><style>.x{}</style></head><body>
 <h1>Fluffy Paws Newtown</h1><p>Call 02 9555 1234. 12 King St, Newtown NSW 2042</p>
@@ -49,6 +44,34 @@ describe("verifyDraft", () => {
 });
 
 describe("verifyDraft price evidence", () => {
+  it("rejects a fabricated price appended after a verbatim evidence prefix", () => {
+    const text = "Full groom small (under 10kg) $90 - $120 and lots of other words about the salon";
+    const d = verifyDraft({ services: [
+      { id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "small", min: 90, max: 120 }, { size: "medium", min: 500, max: 500 }], evidence: "Full groom small (under 10kg) $90 - $120 medium $500" },
+    ], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text });
+    expect(d.partial.services).toBeUndefined();
+  });
+  it("still accepts a service whose name appears earlier on the page without prices", () => {
+    const text = "Services: Full groom small (under 10kg) · Wash & tidy · Nail trim. " + "About us. ".repeat(40) + "Prices: Full groom small (under 10kg) $90 - $120";
+    const d = verifyDraft({ services: [
+      { id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "small", min: 90, max: 120 }], evidence: "Full groom small (under 10kg) $90 - $120" },
+    ], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text });
+    expect(d.partial.services?.map((s) => s.id)).toEqual(["full-groom"]);
+  });
+  it("does not let 12 pass as 120 or 120 pass as 1200", () => {
+    const d = verifyDraft({ services: [
+      { id: "a", name: { en: "A", zh: "A" }, prices: [{ size: "all", min: 12, max: 12 }], evidence: "Full groom $120" },
+      { id: "b", name: { en: "B", zh: "B" }, prices: [{ size: "all", min: 120, max: 120 }], evidence: "Day care $1200" },
+    ], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "Full groom $120. Day care $1200" });
+    expect(d.partial.services).toBeUndefined();
+  });
+  it("does not give invented opening hours full marks because a bare digit-colon appears on the page", () => {
+    const allDays = Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => [d, { open: "09:00", close: "17:30" }]));
+    const d = verifyDraft({ hours: allDays as Draft["hours"], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "Open 9am - 5pm every day. Call 02 9555 1234 or 5:1 odds" });
+    expect(d.confidence.hours).toBeLessThan(1);
+    const ok = verifyDraft({ hours: allDays as Draft["hours"], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "Open 9.00am - 5.30pm every day" });
+    expect(ok.confidence.hours).toBe(1);
+  });
   it("rejects a price whose digits only appear elsewhere on the page", () => {
     const text = "Call 02 9555 1234. Full groom $120";
     const d = verifyDraft({ services: [
@@ -64,7 +87,8 @@ describe("verifyDraft price evidence", () => {
   });
   it("flags missing durations instead of silently defaulting", () => {
     const d = verifyDraft({ services: [{ id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "all", min: 120, max: 120 }], evidence: "Full groom $120" }], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "Full groom $120" });
-    expect(d.partial.services?.[0]?.durationMin).toBe(60);
+    // 占位时长是多少是调参，规则是：有占位就压低置信度并留话给美容师
+    expect(d.partial.services?.[0]?.durationMin).toBeGreaterThan(0);
     expect(d.confidence.services).toBeLessThan(LOW_CONFIDENCE);
     expect(d.rawNotes?.some((n) => n.includes("duration not stated"))).toBe(true);
   });
@@ -113,14 +137,14 @@ describe("importWebsite", () => {
     const fetched: string[] = [];
     const fakeFetch = (async (url: string) => {
       fetched.push(url);
-      const finalUrl = url.replace("https://pawsgrooming.example", "https://www.pawsgrooming.example");
+      // 裸域 301 到 www，之后页面里的绝对链接都指向 www
+      if (url === "https://pawsgrooming.example/") return new Response(null, { status: 301, headers: { location: "https://www.pawsgrooming.example/" } });
       const html = url.includes("/pricing") ? PRICING_HTML : `<a href="https://www.pawsgrooming.example/gallery">g</a><a href="https://www.pawsgrooming.example/pricing">p</a>`;
-      // Response.url 是只读 getter，手工造一个带 url 的响应对象
-      return { ok: true, url: finalUrl, headers: new Headers({ "content-type": "text/html" }), text: async () => html } as unknown as Response;
+      return new Response(html, { status: 200, headers: { "content-type": "text/html" } });
     }) as unknown as typeof fetch;
     faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" })]);
-    await importWebsite(gateway, "https://pawsgrooming.example", { fetch: fakeFetch });
-    expect(fetched).toEqual(["https://pawsgrooming.example", "https://www.pawsgrooming.example/pricing"]);
+    await importWebsite(gateway, "https://pawsgrooming.example", { fetch: fakeFetch, lookup: publicLookup });
+    expect(fetched).toEqual(["https://pawsgrooming.example/", "https://www.pawsgrooming.example/", "https://www.pawsgrooming.example/pricing"]);
   });
   it("caps each page separately so a bloated homepage cannot crowd out the pricing page", async () => {
     const { faux, gateway } = fauxGateway();
@@ -135,7 +159,7 @@ describe("importWebsite", () => {
       seenText = first.content.map((c) => c.text ?? "").join("");
       return fauxAssistantMessage([fauxToolCall("submit_shop_draft", { unsure: [] })], { stopReason: "toolUse" });
     }]);
-    await importWebsite(gateway, "https://big.example", { fetch: fakeFetch, maxChars: 4000 });
+    await importWebsite(gateway, "https://big.example", { fetch: fakeFetch, lookup: publicLookup, maxChars: 4000 });
     expect(seenText).toContain("Full groom medium $120 - $160");
     expect(seenText).toContain("[truncated]");
   });
@@ -148,9 +172,9 @@ describe("importWebsite", () => {
       return new Response(body, { status: 200, headers: { "content-type": "text/html" } });
     }) as unknown as typeof fetch;
     faux.setResponses([fauxAssistantMessage([fauxToolCall("submit_shop_draft", goodDraft)], { stopReason: "toolUse" })]);
-    const d = await importWebsite(gateway, "https://fluffypaws.example", { fetch: fakeFetch });
-    expect(fetched).toEqual(["https://fluffypaws.example", "https://fluffypaws.example/pricing"]);
-    expect(d.partial.website).toBe("https://fluffypaws.example");
+    const d = await importWebsite(gateway, "https://fluffypaws.example", { fetch: fakeFetch, lookup: publicLookup });
+    expect(fetched).toEqual(["https://fluffypaws.example/", "https://fluffypaws.example/pricing"]);
+    expect(d.partial.website).toBe("https://fluffypaws.example/");
     expect(d.partial.services?.[0]?.id).toBe("full-groom");
   });
 });
@@ -162,7 +186,7 @@ describe("importWebsite boundaries", () => {
     ["non-html", async () => new Response("%PDF-1.4", { status: 200, headers: { "content-type": "application/pdf" } })],
   ])("returns an empty draft with a note on %s instead of throwing", async (_label, impl) => {
     const { gateway } = fauxGateway();
-    const d = await importWebsite(gateway, "https://down.example", { fetch: impl as unknown as typeof fetch });
+    const d = await importWebsite(gateway, "https://down.example", { fetch: impl as unknown as typeof fetch, lookup: publicLookup });
     expect(d.partial).toEqual({});
     expect(d.rawNotes?.[0]).toMatch(/could not fetch/);
   });
@@ -247,13 +271,20 @@ describe("mergeDrafts", () => {
     expect(merged.map((s) => s.id)).toEqual(["full-grooming", "wash-tidy", "nail-trim"]);
     expect(merged[0]?.prices).toHaveLength(2);
   });
-  it("keeps operator-provided base values over scraped ones", () => {
-    const m = mergeDrafts([{ source: { type: "website", fetchedAt: "" }, partial: { name: "Home | Fenny and Jacks" }, confidence: { name: 0.5 } }], { slug: "x", name: "Fenny & Jacks" });
+  it("keeps operator-provided base values over scraped ones, even scraped ones with full confidence", () => {
+    const m = mergeDrafts([{ source: { type: "website", fetchedAt: "" }, partial: { name: "Home | Fenny and Jacks" }, confidence: { name: 1 } }], { slug: "x", name: "Fenny & Jacks" });
     expect(m.partial.name).toBe("Fenny & Jacks");
+  });
+  it("lets a later source win an exact tie, including a tie at full confidence", () => {
+    const m = mergeDrafts([
+      { source: { type: "website", fetchedAt: "" }, partial: { phone: "111" }, confidence: { phone: 1 } },
+      { source: { type: "google", fetchedAt: "" }, partial: { phone: "222" }, confidence: { phone: 1 } },
+    ], { slug: "x" });
+    expect(m.partial.phone).toBe("222");
   });
   it("does not satisfy policies with an empty disclaimer", () => {
     const d = verifyDraft({ notes: { en: "No cats", zh: "不接猫" }, unsure: [] }, { source: { type: "website", fetchedAt: "" }, text: "No cats" });
     expect(d.partial.policies?.quoteDisclaimer.en.length).toBeGreaterThan(0);
-    expect(d.confidence.policies).toBe(0.5);
+    expect(d.confidence.policies).toBeLessThan(LOW_CONFIDENCE);
   });
 });
