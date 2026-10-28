@@ -1,17 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { createGateway } from "../src/llm/gateway.js";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { newConversation, runTurn, type AgentDeps } from "../src/agent/loop.js";
 import { defaultTools } from "../src/tools/index.js";
 import { InMemoryBookingStore, InMemoryCalendar } from "../src/booking/ports.js";
-import { demoShop } from "./fixtures.js";
+import { demoShop, fauxGateway } from "./fixtures.js";
 
 function setup() {
-  const faux = fauxProvider();
-  const models = createModels();
-  models.setProvider(faux.provider);
-  const model = faux.getModel();
-  const gateway = createGateway({ models, roleModels: { chat: model, vision: model, judge: model, fallback: model } });
+  const { faux, gateway } = fauxGateway();
   const bookings = new InMemoryBookingStore();
   const calendar = new InMemoryCalendar(() => ({ open: "09:00", close: "17:00" }));
   const deps: AgentDeps = { gateway, shop: demoShop, tools: defaultTools(), toolContext: { bookings, calendar }, today: () => "2026-11-01" };

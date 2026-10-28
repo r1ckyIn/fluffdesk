@@ -75,9 +75,12 @@ export function mergeDrafts(drafts: ShopDraft[], base: Partial<ShopConfig> = {})
   const confidence: ShopDraft["confidence"] = {};
   const richness: Partial<Record<keyof ShopConfig, number>> = {};
   const notes: string[] = [];
-  // 人工给的 base 字段锁定：只有信息量更高的来源才能覆盖（实际上只有 services/sizeTiers 可能）
+  // 人工给的 base 字段锁定：只有信息量更高的来源才能覆盖（实际上只有 services/sizeTiers 可能）。
+  // 锁是显式的，不靠"置信度等于 1"表达：抓到的字段也可能满分，满分平手照样是后来的赢
+  const locked = new Set<keyof ShopConfig>();
   for (const key of Object.keys(base) as Array<keyof ShopConfig>) {
     if (base[key] === undefined) continue;
+    locked.add(key);
     confidence[key] = 1;
     richness[key] = richnessOf(key, base[key]);
   }
@@ -92,7 +95,7 @@ export function mergeDrafts(drafts: ShopDraft[], base: Partial<ShopConfig> = {})
         continue;
       }
       const r = richnessOf(key, d.partial[key]);
-      const better = partial[key] === undefined || r > (richness[key] ?? -1) || (r === (richness[key] ?? -1) && c >= (confidence[key] ?? -1) && (confidence[key] ?? 0) < 1);
+      const better = partial[key] === undefined || r > (richness[key] ?? -1) || (r === (richness[key] ?? -1) && c >= (confidence[key] ?? -1) && !locked.has(key));
       if (better) {
         (partial as Record<string, unknown>)[key] = d.partial[key];
         confidence[key] = c;

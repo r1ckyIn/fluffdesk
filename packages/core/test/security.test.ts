@@ -1,23 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createModels, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { isPrivateAddress, safeFetchHtml, UnsafeUrlError } from "../src/shop/importer/safe-fetch.js";
 import { importWebsite } from "../src/shop/importer/website.js";
-import { createGateway } from "../src/llm/gateway.js";
 import { newConversation, runTurn, pruneOldImages, type AgentDeps } from "../src/agent/loop.js";
 import { defaultTools, holdBookingTool } from "../src/tools/index.js";
 import { InMemoryBookingStore, InMemoryCalendar } from "../src/booking/ports.js";
 import { LIMITS } from "../src/agent/limits.js";
-import { demoShop } from "./fixtures.js";
+import { demoShop, fauxGateway } from "./fixtures.js";
 
 /** 公网输入的护栏：SSRF、数量上限、预约刷量 */
 
-function fauxGateway() {
-  const faux = fauxProvider();
-  const models = createModels();
-  models.setProvider(faux.provider);
-  const m = faux.getModel();
-  return { faux, gateway: createGateway({ models, roleModels: { chat: m, vision: m, judge: m, fallback: m } }) };
-}
 const html = (body: string) => new Response(body, { status: 200, headers: { "content-type": "text/html" } });
 const publicLookup = async () => ["93.184.216.34"];
 

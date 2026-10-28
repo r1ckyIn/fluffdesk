@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 import { createGateway, importGoogleBusiness, importScreenshots, importWebsite, mergeDrafts, LOW_CONFIDENCE, type ShopDraft } from "@fluffdesk/core";
 
 /**
@@ -16,7 +17,10 @@ import { createGateway, importGoogleBusiness, importScreenshots, importWebsite, 
 const BASE = process.env.INIT_CWD ?? process.cwd();
 /** 默认输出目录按仓库根算，和调用目录无关 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../../..");
-const args = parseArgs(process.argv.slice(2));
+const { values: args } = parseArgs({
+  args: process.argv.slice(2),
+  options: { slug: { type: "string" }, name: { type: "string" }, website: { type: "string" }, google: { type: "string" }, screenshots: { type: "string" }, out: { type: "string" } },
+});
 const slug = args.slug;
 // slug 进文件名，必须和 schema 的 pattern 一致，否则 --slug ../../x 能写到别处
 if (slug && !/^[a-z0-9-]+$/.test(slug)) {
@@ -62,17 +66,6 @@ if (low.length) console.log(`check these (low confidence): ${low.map(([k, c]) =>
 if (merged.missing.length) console.log(`missing (fill by hand): ${merged.missing.join(", ")}`);
 for (const n of merged.notes) console.log(`  - ${n}`);
 
-function parseArgs(argv: string[]): Record<string, string | undefined> {
-  const out: Record<string, string> = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
-    if (a.startsWith("--")) {
-      const next = argv[i + 1];
-      if (next && !next.startsWith("--")) { out[a.slice(2)] = next; i++; } else out[a.slice(2)] = "true";
-    }
-  }
-  return out;
-}
 function mime(f: string): string {
   const e = extname(f).toLowerCase();
   return e === ".png" ? "image/png" : e === ".webp" ? "image/webp" : "image/jpeg";
