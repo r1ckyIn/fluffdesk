@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { isPrivateAddress, safeFetchHtml, UnsafeUrlError } from "../src/shop/importer/safe-fetch.js";
+import { isPrivateAddress, safeFetchBytes, safeFetchHtml, UnsafeUrlError } from "../src/shop/importer/safe-fetch.js";
 import { importWebsite } from "../src/shop/importer/website.js";
 import { newConversation, runTurn, pruneOldImages, type AgentDeps } from "../src/agent/loop.js";
 import { defaultTools, holdBookingTool } from "../src/tools/index.js";
@@ -67,6 +67,43 @@ describe("safeFetchHtml 防 SSRF", () => {
     const d = await importWebsite(gateway, "http://10.1.1.1/", { fetch: (async () => html("")) as never, lookup: publicLookup });
     expect(d.partial).toEqual({});
     expect(d.rawNotes?.[0]).toMatch(/private address/);
+  });
+});
+
+/** 渠道收图走的二进制版：同一套地址护栏，超上限是报错不是截断，带的令牌不跟着重定向换主机 */
+describe("safeFetchBytes 防 SSRF", () => {
+  const bin = (n: number, type = "image/jpeg") => new Response(new Uint8Array(n), { status: 200, headers: { "content-type": type } });
+  it.each(["http://10.0.0.1/a.jpg", "http://[::ffff:169.254.169.254]/x", "file:///etc/passwd", "http://user:pw@x.example/a"])("rejects %s without fetching", async (url) => {
+    let fetched = false;
+    const fetchImpl = (async () => { fetched = true; return bin(3); }) as unknown as typeof fetch;
+    await expect(safeFetchBytes(url, { fetch: fetchImpl, lookup: publicLookup })).rejects.toBeInstanceOf(UnsafeUrlError);
+    expect(fetched).toBe(false);
+  });
+  it("rejects hosts that resolve to private addresses", async () => {
+    await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => bin(3)) as never, lookup: async () => ["192.168.0.2"] })).rejects.toThrow(/private address/);
+  });
+  it("re-validates redirects and drops the bearer header when the host changes", async () => {
+    const seen: Array<{ url: string; auth?: string }> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      seen.push({ url, auth: (init?.headers as Record<string, string>)?.authorization });
+      if (url === "https://a.example/one") return new Response(null, { status: 302, headers: { location: "https://a.example/two" } });
+      if (url === "https://a.example/two") return new Response(null, { status: 302, headers: { location: "https://b.example/three" } });
+      return bin(3);
+    }) as unknown as typeof fetch;
+    const r = await safeFetchBytes("https://a.example/one", { fetch: fetchImpl, lookup: publicLookup, headers: { authorization: "Bearer t" } });
+    expect(r.url).toBe("https://b.example/three");
+    expect(seen.map((s) => s.auth)).toEqual(["Bearer t", "Bearer t", undefined]);
+    const toPrivate = (async () => new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } })) as unknown as typeof fetch;
+    await expect(safeFetchBytes("https://a.example/", { fetch: toPrivate, lookup: publicLookup })).rejects.toThrow(/private address/);
+  });
+  it("fails instead of truncating when the body exceeds maxBytes", async () => {
+    await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => bin(1001)) as never, lookup: publicLookup, maxBytes: 1000 })).rejects.toThrow(/larger than/);
+    const ok = await safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => bin(1000)) as never, lookup: publicLookup, maxBytes: 1000 });
+    expect(ok.bytes.length).toBe(1000);
+    expect(ok.contentType).toBe("image/jpeg");
+  });
+  it("surfaces non-2xx as an error", async () => {
+    await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => new Response("no", { status: 403 })) as never, lookup: publicLookup })).rejects.toThrow(/http 403/);
   });
 });
 

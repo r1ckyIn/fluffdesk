@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { createHmac } from "node:crypto";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
-import { conversationKey, createGateway, defaultTools, newConversation, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, Tracer, type Conversation } from "@fluffdesk/core";
+import { conversationKey, createGateway, defaultTools, newConversation, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, LIMITS, Tracer, type Conversation } from "@fluffdesk/core";
+import { chunkText, MEDIA_MAX_BYTES, verifyMetaSignature } from "../src/channels/meta.js";
+import { CANNED, parseWhatsAppPayload } from "../src/channels/whatsapp.js";
 import { createApp } from "../src/app.js";
 import type { Runtime } from "../src/runtime.js";
 import { BoundedStore, RateLimiter } from "../src/ratelimit.js";
@@ -322,5 +325,222 @@ describe("app config", () => {
     expect(s.get("a", 3)).toBeUndefined();
     expect(s.get("c", 500)).toBe(3);
     expect(s.get("b", 2000)).toBeUndefined(); // 过期
+  });
+});
+
+/**
+ * WhatsApp webhook：验签失败关闭、消息去重、按 phone_number_id 找店、图片经 Graph 拉取、不支持的类型回固定话术。
+ * 出网全部走假 fetch：Graph 的发消息、媒体元数据、媒体下载各记一笔，断言用
+ */
+describe("whatsapp webhook", () => {
+  const SECRET = "wa-app-secret";
+  const WA_TOKEN = "wa-access-token";
+  const GRAPH = "https://graph.test/v21.0";
+  const MEDIA_URL = "https://lookaside.test/whatsapp_business/attachments/?mid=m1";
+  const waShop = parseShopConfig({ ...shop, slug: "wa", channels: { whatsapp: { phoneNumberId: "pn-1" } } });
+  const waEnv = { META_APP_SECRET: SECRET, WHATSAPP_ACCESS_TOKEN: WA_TOKEN };
+
+  interface Call { method: string; url: string; headers: Record<string, string>; body?: string }
+
+  /** 假的出网：记下每次调用；媒体元数据和字节可按测试改 */
+  function fakeGraph(opts: { mediaMeta?: Record<string, unknown>; mediaBytes?: Uint8Array; mediaStatus?: number } = {}) {
+    const calls: Call[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const headers = Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]));
+      calls.push({ method: init?.method ?? "GET", url, headers, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/messages")) return Response.json({ messages: [{ id: "wamid.out" }] });
+      if (url === MEDIA_URL) return new Response(opts.mediaBytes ?? new Uint8Array([1, 2, 3]), { status: opts.mediaStatus ?? 200, headers: { "content-type": "image/jpeg" } });
+      if (url.startsWith(`${GRAPH}/`)) return Response.json(opts.mediaMeta ?? { url: MEDIA_URL, mime_type: "image/jpeg", file_size: 3, id: "media-1" });
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl, sends: () => calls.filter((c) => c.method === "POST" && c.url.endsWith("/messages")) };
+  }
+
+  function waApp(env: Record<string, string | undefined> = waEnv, graph = fakeGraph()) {
+    const rt = testRuntime();
+    rt.shops = new InMemoryShopRepo([shop, waShop]);
+    const pending: Promise<void>[] = [];
+    const app = createApp(rt, env, { fetch: graph.fetchImpl, graphBase: GRAPH, lookup: async () => ["93.184.216.34"], track: (p) => void pending.push(p) });
+    const drain = async () => { await Promise.all(pending); };
+    return { rt, app, graph, drain, pending };
+  }
+
+  const message = (m: Record<string, unknown>, phoneNumberId = "pn-1") => ({
+    object: "whatsapp_business_account",
+    entry: [{ id: "waba-1", changes: [{ field: "messages", value: { messaging_product: "whatsapp", metadata: { display_phone_number: "61400000000", phone_number_id: phoneNumberId }, contacts: [{ profile: { name: "Sam" }, wa_id: "61411111111" }], messages: [{ from: "61411111111", id: "wamid.1", timestamp: "1700000000", ...m }] } }] }],
+  });
+  const text = (body: string, id = "wamid.1") => message({ id, type: "text", text: { body } });
+  const sign = (raw: string, secret = SECRET) => `sha256=${createHmac("sha256", secret).update(raw).digest("hex")}`;
+  const signed = (payload: unknown, secret = SECRET): RequestInit => {
+    const raw = JSON.stringify(payload);
+    return { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": sign(raw, secret) }, body: raw };
+  };
+  const convOf = (rt: Runtime, from = "61411111111") => rt.conversations.get(`wa:whatsapp:${from}`);
+
+  it("verifyMetaSignature fails closed", () => {
+    expect(verifyMetaSignature(undefined, "{}", sign("{}"))).toBe(false);
+    expect(verifyMetaSignature(SECRET, "{}", undefined)).toBe(false);
+    expect(verifyMetaSignature(SECRET, "{}", "sha1=abc")).toBe(false);
+    expect(verifyMetaSignature(SECRET, "{}", sign("{}", "other"))).toBe(false);
+    expect(verifyMetaSignature(SECRET, "{}", sign("{} "))).toBe(false); // 原始字节不同就不同
+    expect(verifyMetaSignature(SECRET, "{}", sign("{}"))).toBe(true);
+  });
+  it("returns 503 and processes nothing unless both the app secret and the access token are configured", async () => {
+    for (const env of [{}, { META_APP_SECRET: SECRET }, { WHATSAPP_ACCESS_TOKEN: WA_TOKEN }]) {
+      const { app, pending } = waApp(env);
+      expect((await app.request("/webhooks/whatsapp", signed(text("hi")))).status).toBe(503);
+      expect(pending).toHaveLength(0);
+    }
+  });
+  it("rejects a missing or wrong signature before touching the payload", async () => {
+    const { app, pending, graph } = waApp();
+    const raw = JSON.stringify(text("hi"));
+    expect((await app.request("/webhooks/whatsapp", { method: "POST", headers: { "content-type": "application/json" }, body: raw })).status).toBe(401);
+    expect((await app.request("/webhooks/whatsapp", signed(text("hi"), "wrong-secret"))).status).toBe(401);
+    // 签名对的是另一个请求体
+    expect((await app.request("/webhooks/whatsapp", { method: "POST", headers: { "x-hub-signature-256": sign(raw) }, body: raw + " " })).status).toBe(401);
+    expect(pending).toHaveLength(0);
+    expect(graph.calls).toHaveLength(0);
+  });
+  it("returns 400 for a signed body that is not json", async () => {
+    const { app } = waApp();
+    const raw = "{not json";
+    expect((await app.request("/webhooks/whatsapp", { method: "POST", headers: { "x-hub-signature-256": sign(raw) }, body: raw })).status).toBe(400);
+  });
+  it("answers a text message through the agent and sends the reply back via Graph", async () => {
+    const { app, rt, graph, drain } = waApp();
+    const r = await app.request("/webhooks/whatsapp", signed(text("Hi, how much for a bath?")));
+    expect(r.status).toBe(200);
+    await drain();
+    const conv = await convOf(rt);
+    expect(conv?.shopSlug).toBe("wa");
+    expect(conv?.channel).toBe("whatsapp");
+    expect(JSON.stringify(conv?.messages)).toContain("how much for a bath");
+    const sends = graph.sends();
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.url).toBe(`${GRAPH}/pn-1/messages`);
+    expect(sends[0]!.headers.authorization).toBe(`Bearer ${WA_TOKEN}`);
+    expect(JSON.parse(sends[0]!.body!)).toMatchObject({ messaging_product: "whatsapp", to: "61411111111", type: "text", text: { body: "hello" } });
+  });
+  it("processes a redelivered message id only once", async () => {
+    const { app, rt, graph, drain } = waApp();
+    await app.request("/webhooks/whatsapp", signed(text("first")));
+    await app.request("/webhooks/whatsapp", signed(text("first")));
+    await app.request("/webhooks/whatsapp", signed(text("second", "wamid.2")));
+    await drain();
+    expect((await convOf(rt))?.messages.filter((m) => m.role === "user")).toHaveLength(2);
+    expect(graph.sends()).toHaveLength(2);
+  });
+  it("drops messages for a phone_number_id no shop is bound to", async () => {
+    const { app, rt, graph, drain } = waApp();
+    await app.request("/webhooks/whatsapp", signed(message({ type: "text", text: { body: "hi" } }, "pn-unknown")));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(await rt.conversations.get("s1:whatsapp:61411111111")).toBeUndefined();
+    expect(graph.calls).toHaveLength(0);
+  });
+  it("ignores delivery statuses and payloads of other objects", async () => {
+    const { app, rt, graph, drain } = waApp();
+    const statuses = { object: "whatsapp_business_account", entry: [{ id: "waba-1", changes: [{ field: "messages", value: { messaging_product: "whatsapp", metadata: { phone_number_id: "pn-1" }, statuses: [{ id: "wamid.1", status: "delivered", recipient_id: "61411111111" }] } }] }] };
+    expect((await app.request("/webhooks/whatsapp", signed(statuses))).status).toBe(200);
+    expect((await app.request("/webhooks/whatsapp", signed({ object: "page", entry: [] }))).status).toBe(200);
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(graph.calls).toHaveLength(0);
+  });
+  it("fetches an image through Graph with the bearer token and hands it to the agent", async () => {
+    const { app, rt, graph, drain } = waApp();
+    await app.request("/webhooks/whatsapp", signed(message({ type: "image", image: { id: "media-1", mime_type: "image/jpeg", sha256: "x" } })));
+    await drain();
+    const meta = graph.calls.find((c) => c.url === `${GRAPH}/media-1`);
+    const bytes = graph.calls.find((c) => c.url === MEDIA_URL);
+    expect(meta?.headers.authorization).toBe(`Bearer ${WA_TOKEN}`);
+    expect(bytes?.headers.authorization).toBe(`Bearer ${WA_TOKEN}`);
+    const conv = await convOf(rt);
+    expect(conv?.images.size).toBe(1);
+    expect([...conv!.images.values()][0]).toEqual({ data: Buffer.from([1, 2, 3]).toString("base64"), mimeType: "image/jpeg" });
+    expect(graph.sends()).toHaveLength(1);
+  });
+  it.each([
+    ["wrong type", { url: MEDIA_URL, mime_type: "image/gif", file_size: 3 }],
+    ["declared too large", { url: MEDIA_URL, mime_type: "image/jpeg", file_size: MEDIA_MAX_BYTES + 1 }],
+    ["no url", { mime_type: "image/jpeg", file_size: 3 }],
+  ])("replies with the canned text instead of calling the model when the image is %s", async (_label, mediaMeta) => {
+    const { app, rt, graph, drain } = waApp(waEnv, fakeGraph({ mediaMeta }));
+    await app.request("/webhooks/whatsapp", signed(message({ type: "image", image: { id: "media-1" } })));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(graph.calls.some((c) => c.url === MEDIA_URL)).toBe(false);
+    expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.mediaFailed);
+  });
+  it("rejects an image whose actual bytes exceed the cap even if the metadata said otherwise", async () => {
+    const { app, rt, graph, drain } = waApp(waEnv, fakeGraph({ mediaBytes: new Uint8Array(MEDIA_MAX_BYTES + 1) }));
+    await app.request("/webhooks/whatsapp", signed(message({ type: "image", image: { id: "media-1" } })));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.mediaFailed);
+  });
+  it("refuses to download media from a url that resolves to a private address", async () => {
+    const graph = fakeGraph();
+    const rt = testRuntime();
+    rt.shops = new InMemoryShopRepo([waShop]);
+    const pending: Promise<void>[] = [];
+    const app = createApp(rt, waEnv, { fetch: graph.fetchImpl, graphBase: GRAPH, lookup: async () => ["10.0.0.9"], track: (p) => void pending.push(p) });
+    await app.request("/webhooks/whatsapp", signed(message({ type: "image", image: { id: "media-1" } })));
+    await Promise.all(pending);
+    expect(graph.calls.some((c) => c.url === MEDIA_URL)).toBe(false);
+    expect(await convOf(rt)).toBeUndefined();
+    expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.mediaFailed);
+  });
+  it("still runs the agent on the caption when the image fails", async () => {
+    const { app, rt, graph, drain } = waApp(waEnv, fakeGraph({ mediaStatus: 500 }));
+    await app.request("/webhooks/whatsapp", signed(message({ type: "image", image: { id: "media-1", caption: "this is Max, 8kg" } })));
+    await drain();
+    const conv = await convOf(rt);
+    expect(conv?.images.size).toBe(0);
+    expect(JSON.stringify(conv?.messages)).toContain("this is Max");
+    expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe("hello");
+  });
+  it("answers unsupported message types with the canned text and never calls the model", async () => {
+    const { app, rt, graph, drain } = waApp();
+    await app.request("/webhooks/whatsapp", signed(message({ type: "audio", audio: { id: "a1" } })));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.unsupported);
+  });
+  it("drops messages beyond the per-session budget without replying", async () => {
+    const { app, graph, drain } = waApp();
+    for (let i = 0; i < 5; i++) await app.request("/webhooks/whatsapp", signed(text(`m${i}`, `wamid.${i}`)));
+    await drain();
+    expect(graph.sends().length).toBeLessThan(5); // testRuntime 的 perSession 预算很小
+  });
+  it("strips NUL bytes and caps the text before it reaches the agent", async () => {
+    const { app, rt, drain } = waApp();
+    await app.request("/webhooks/whatsapp", signed(text("hi\u0000there" + "x".repeat(LIMITS.textChars + 100))));
+    await drain();
+    const conv = await convOf(rt);
+    const dump = JSON.stringify(conv?.messages);
+    expect(dump).not.toContain("\\u0000");
+    expect(dump).toContain("hithere");
+    expect(dump.length).toBeLessThan(LIMITS.textChars + 500);
+  });
+  it("parseWhatsAppPayload drops malformed entries and keeps the well-formed ones", () => {
+    const p = message({ type: "text", text: { body: "ok" } });
+    const value = (p.entry[0]!.changes[0]!.value as unknown as { messages: unknown[] });
+    value.messages.push({ from: "not-a-number", id: "wamid.x", type: "text", text: { body: "bad" } }, { from: "61411111111", id: "wamid.y", type: "text" }, null, { from: "61411111111", id: "wamid.z", type: "image", image: {} });
+    const events = parseWhatsAppPayload(p);
+    expect(events.map((e) => e.messageId)).toEqual(["wamid.1"]);
+    expect(parseWhatsAppPayload(null)).toEqual([]);
+    expect(parseWhatsAppPayload({ object: "whatsapp_business_account", entry: [null, { changes: [null, { field: "other", value: {} }] }] })).toEqual([]);
+  });
+  it("chunkText splits long replies at line breaks and keeps short ones whole", () => {
+    expect(chunkText("short")).toEqual(["short"]);
+    expect(chunkText("")).toEqual([""]);
+    const long = Array.from({ length: 10 }, (_, i) => `line ${i} ${"y".repeat(600)}`).join("\n");
+    const parts = chunkText(long, 4000);
+    expect(parts.join("\n")).toBe(long);
+    expect(parts.every((p) => p.length <= 4000)).toBe(true);
+    expect(parts.length).toBeGreaterThan(1);
+    expect(chunkText("x".repeat(9000), 4000).map((p) => p.length)).toEqual([4000, 4000, 1000]);
   });
 });

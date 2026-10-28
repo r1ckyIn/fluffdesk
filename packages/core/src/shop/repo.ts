@@ -1,4 +1,4 @@
-import type { ShopConfig } from "./schema.js";
+import type { ShopChannels, ShopConfig } from "./schema.js";
 
 /**
  * 店铺配置的只读口。agent 和路由只读；写入在 seed、导入器和美容师端。
@@ -33,4 +33,19 @@ export class InMemoryShopRepo implements ShopRepo, ShopEditor {
     this.items.set(config.slug, config);
     return true;
   }
+}
+
+/**
+ * 按渠道账号 id 找店：WhatsApp 用 phone_number_id，Instagram 用专业账号 id。
+ * 店很少（几十家），list 后过滤就够了，不用给每个存储实现加查询。id 必须完全相等，空字符串永远对不上
+ */
+export async function findShopByChannel(repo: ShopRepo, channel: keyof ShopChannels, accountId: string): Promise<ShopConfig | undefined> {
+  if (!accountId) return undefined;
+  const shops = await repo.list();
+  return shops.find((s) => {
+    const binding = s.channels?.[channel];
+    if (!binding) return false;
+    const id = channel === "whatsapp" ? (binding as { phoneNumberId: string }).phoneNumberId : (binding as { accountId: string }).accountId;
+    return id === accountId;
+  });
 }

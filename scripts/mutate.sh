@@ -51,6 +51,15 @@ MUTATIONS=(
   'packages/db/src/stores/shops.ts@@s/const cfg = validateShopConfig(config);/const cfg = parseShopConfig(config);/g@@Postgres 写边界不查引用完整性'
   'packages/core/src/booking/ports.ts@@s/ || b.createdAt.localeCompare(a.createdAt)//@@历史列表平手时次序随机'
   'packages/db/src/stores/bookings.ts@@s/, desc(bookings.createdAt))/)/@@Postgres 版历史列表平手时次序随机'
+  'apps/api/src/channels/meta.ts@@s/return expected.length === provided.length \&\& timingSafeEqual(expected, provided);/return true;/@@Meta webhook 验签放行'
+  'apps/api/src/routes/webhooks.ts@@s/if (!whatsappReady) return c.json/if (false) return c.json/@@WhatsApp 没配 secret 或 token 也收消息'
+  'apps/api/src/channels/whatsapp.ts@@s/if (seen.get(ev.messageId)) return;/if (false) return;/@@WhatsApp 重发的消息处理两次'
+  'packages/core/src/shop/repo.ts@@s/return id === accountId;/return true;/@@按渠道找店不比对账号 id'
+  'apps/api/src/channels/whatsapp.ts@@s/if (!rt.limits.perSession.take(`whatsapp:${ev.from}`)) return;/if (false) return;/@@WhatsApp 每号码没有限流'
+  'apps/api/src/channels/meta.ts@@s/if (!IMAGE_MIME_ALLOWLIST.has(mimeType)) return { error: "type" };/if (false) return { error: "type" };/@@WhatsApp 图片不看类型'
+  'apps/api/src/channels/meta.ts@@s/if (typeof meta.file_size === "number" \&\& meta.file_size > MEDIA_MAX_BYTES)/if (false)/@@WhatsApp 图片元数据超大也去下载'
+  'packages/core/src/shop/importer/safe-fetch.ts@@s/if (truncated) throw new Error/if (false) throw new Error/@@二进制抓取超上限不报错只截断'
+  'packages/core/src/shop/importer/safe-fetch.ts@@s/const extra = u.host === origin ? opts.headers ?? {} : {};/const extra = opts.headers ?? {};/@@bearer 跟着重定向换主机'
 )
 
 files=()
