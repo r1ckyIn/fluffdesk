@@ -1,4 +1,4 @@
-import type { Booking, Slot } from "./types.js";
+import type { Booking, BookingStatus, Decision, Slot } from "./types.js";
 
 /** 日历只读口。实现可以是 Google Calendar、店里自己的表，或者测试用的内存版 */
 export interface CalendarPort {
@@ -18,11 +18,13 @@ export interface BookingStore {
   createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking>;
   get(id: string): Promise<Booking | undefined>;
   listPending(shopSlug: string): Promise<Booking[]>;
+  /** 美容师端的历史：按状态过滤，决定时间倒序（没决定的按创建时间倒序），有上限 */
+  listByStatus(shopSlug: string, statuses: BookingStatus[], limit?: number): Promise<Booking[]>;
   /** 一个会话的待确认预约：hold_booking 用它限流和查重 */
   listPendingForConversation(conversationId: string): Promise<Booking[]>;
   /** 客人改了联系方式或宠物信息再提交同一时段：更新那条待确认的，还是 pending。不是 pending 就抛 BookingStateError */
   updatePending(id: string, input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking>;
-  decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking>;
+  decide(id: string, decision: Decision): Promise<Booking>;
 }
 
 /** 内存实现：开发、测试、demo 用。id 生成器可注入：录制回放要求工具结果确定，不能带随机数 */
@@ -49,6 +51,12 @@ export class InMemoryBookingStore implements BookingStore {
   async listPending(shopSlug: string) {
     return [...this.items.values()].filter((b) => b.shopSlug === shopSlug && b.status === "pending");
   }
+  async listByStatus(shopSlug: string, statuses: BookingStatus[], limit = 100) {
+    return [...this.items.values()]
+      .filter((b) => b.shopSlug === shopSlug && statuses.includes(b.status))
+      .sort((a, b) => (b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt))
+      .slice(0, limit);
+  }
   async listPendingForConversation(conversationId: string) {
     return [...this.items.values()].filter((b) => b.conversationId === conversationId && b.status === "pending");
   }
@@ -59,11 +67,11 @@ export class InMemoryBookingStore implements BookingStore {
     Object.assign(b, input, { status: "pending" });
     return b;
   }
-  async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }) {
+  async decide(id: string, decision: Decision) {
     const b = this.items.get(id);
     if (!b) throw new BookingStateError(`booking not found: ${id}`);
     if (b.status !== "pending") throw new BookingStateError(`booking ${id} already ${b.status}`);
-    Object.assign(b, { status: decision.status, decidedAt: new Date().toISOString(), decidedBy: decision.by, declineReason: decision.reason });
+    Object.assign(b, { status: decision.status, decidedAt: new Date().toISOString(), decidedBy: decision.by, declineReason: decision.reason, ...decidedFields(decision) });
     return b;
   }
 }
@@ -72,13 +80,13 @@ export class InMemoryBookingStore implements BookingStore {
 export class InMemoryCalendar implements CalendarPort {
   constructor(
     private readonly hoursFor: (date: string) => { open: string; close: string } | null,
-    private readonly busy: () => Promise<Slot[]> = async () => [],
+    private readonly busy: (date: string) => Promise<Slot[]> = async () => [],
   ) {}
 
   async freeSlots(date: string, durationMin: number): Promise<Slot[]> {
     const hours = this.hoursFor(date);
     if (!hours) return [];
-    const taken = await this.busy();
+    const taken = await this.busy(date);
     const out: Slot[] = [];
     let cursor = toMinutes(hours.open);
     const close = toMinutes(hours.close);
@@ -90,6 +98,17 @@ export class InMemoryCalendar implements CalendarPort {
     }
     return out;
   }
+}
+
+/** 替代时段只随 declined 落库：confirmed 带着 alternatives 进来也不存，内存版和 Postgres 版同一个语义 */
+export function decidedFields(decision: Decision): Pick<Booking, "alternatives"> {
+  return decision.status === "declined" && decision.alternatives?.length ? { alternatives: [...decision.alternatives] } : {};
+}
+
+/** 一条预约占的时段，给日历减掉用 */
+export function bookingSlot(b: Pick<Booking, "start" | "durationMin">): Slot {
+  const [date, hhmm] = b.start.split("T") as [string, string];
+  return { start: b.start, end: `${date}T${fromMinutes(toMinutes(hhmm) + b.durationMin)}` };
 }
 
 function toMinutes(hhmm: string): number {

@@ -9,7 +9,15 @@ export interface ShopRepo {
   list(): Promise<ShopConfig[]>;
 }
 
-export class InMemoryShopRepo implements ShopRepo {
+/**
+ * 店铺配置的写口，只给美容师端用。agent 和渠道层拿不到它。
+ * 只改已经存在（且已确认）的店；不存在或还是草稿就回 false，不会把草稿顺手变成正式店。
+ */
+export interface ShopEditor {
+  save(config: ShopConfig): Promise<boolean>;
+}
+
+export class InMemoryShopRepo implements ShopRepo, ShopEditor {
   private readonly items: Map<string, ShopConfig>;
   constructor(shops: ShopConfig[]) {
     this.items = new Map(shops.map((s) => [s.slug, s]));
@@ -19,5 +27,10 @@ export class InMemoryShopRepo implements ShopRepo {
   }
   async list() {
     return [...this.items.values()];
+  }
+  async save(config: ShopConfig) {
+    if (!this.items.has(config.slug)) return false;
+    this.items.set(config.slug, config);
+    return true;
   }
 }

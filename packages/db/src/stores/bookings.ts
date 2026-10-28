@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, eq, sql } from "drizzle-orm";
-import { BookingStateError, type Booking, type BookingStore } from "@fluffdesk/core";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { BookingStateError, decidedFields, type Booking, type BookingStatus, type BookingStore, type Decision } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { bookings } from "../schema.js";
 
@@ -58,6 +58,17 @@ export class PgBookingStore implements BookingStore {
     return rows.map(toBooking);
   }
 
+  async listByStatus(shopSlug: string, statuses: BookingStatus[], limit = 100): Promise<Booking[]> {
+    if (statuses.length === 0) return [];
+    const rows = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.shopSlug, shopSlug), inArray(bookings.status, statuses)))
+      .orderBy(desc(sql`coalesce(${bookings.decidedAt}, ${bookings.createdAt})`))
+      .limit(limit);
+    return rows.map(toBooking);
+  }
+
   async listPendingForConversation(conversationId: string): Promise<Booking[]> {
     const rows = await this.db
       .select()
@@ -67,10 +78,10 @@ export class PgBookingStore implements BookingStore {
     return rows.map(toBooking);
   }
 
-  async decide(id: string, decision: { status: "confirmed" | "declined"; by: string; reason?: string }): Promise<Booking> {
+  async decide(id: string, decision: Decision): Promise<Booking> {
     const [row] = await this.db
       .update(bookings)
-      .set({ status: decision.status, decidedAt: new Date(), decidedBy: decision.by, declineReason: decision.reason ?? null })
+      .set({ status: decision.status, decidedAt: new Date(), decidedBy: decision.by, declineReason: decision.reason ?? null, alternatives: decidedFields(decision).alternatives ?? null })
       .where(and(eq(bookings.id, id), eq(bookings.status, "pending")))
       .returning();
     if (row) return toBooking(row);
@@ -112,5 +123,6 @@ function toBooking(row: Row): Booking {
   if (row.decidedAt) b.decidedAt = row.decidedAt.toISOString();
   if (row.decidedBy) b.decidedBy = row.decidedBy;
   if (row.declineReason) b.declineReason = row.declineReason;
+  if (row.alternatives?.length) b.alternatives = row.alternatives;
   return b;
 }

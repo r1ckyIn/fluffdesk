@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  createGateway, defaultTools, consoleTraceSink, parseShopConfig,
+  createGateway, defaultTools, consoleTraceSink, parseShopConfig, bookingSlot,
   InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, Tracer,
-  type BookingStore, type ConversationStore, type CorrectionStore, type Gateway, type ShopConfig, type ShopRepo, type TraceSink,
+  type BookingStore, type ConversationStore, type CorrectionStore, type Gateway, type ShopConfig, type ShopEditor, type ShopRepo, type TraceSink,
 } from "@fluffdesk/core";
 import { createDb, PgBookingStore, PgConversationStore, PgCorrectionStore, PgShopRepo, pgTraceSink } from "@fluffdesk/db";
 import { MemoryConversationStore, MemoryCorrectionStore } from "./memory.js";
@@ -17,7 +17,8 @@ import { RateLimiter } from "./ratelimit.js";
  */
 export interface Runtime {
   gateway: Gateway;
-  shops: ShopRepo;
+  /** 写口只有美容师端的路由用；agent 循环拿到的是 ShopConfig 本身，碰不到仓库 */
+  shops: ShopRepo & ShopEditor;
   conversations: ConversationStore;
   bookings: BookingStore;
   corrections: CorrectionStore;
@@ -45,11 +46,15 @@ export function createRuntime(env: Record<string, string | undefined> = process.
     ...persistence,
     limits: { perIp: new RateLimiter(60, 60_000), perSession: new RateLimiter(20, 60_000) },
     newTracer: (id) => new Tracer(id, persistence.traceSinks),
+    // 日历 = 营业时间减掉已确认的预约：美容师点了确认，agent 和替代时段选择器就都看不到那个空档了
     calendarFor: (shop) =>
-      new InMemoryCalendar((date) => {
-        const day = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date(`${date}T00:00:00`).getDay()] as keyof ShopConfig["hours"];
-        return shop.hours[day] ?? null;
-      }),
+      new InMemoryCalendar(
+        (date) => {
+          const day = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date(`${date}T00:00:00`).getDay()] as keyof ShopConfig["hours"];
+          return shop.hours[day] ?? null;
+        },
+        async (date) => (await persistence.bookings.listByStatus(shop.slug, ["confirmed"], 500)).filter((b) => b.start.startsWith(date)).map(bookingSlot),
+      ),
     tools: defaultTools(),
   };
 }

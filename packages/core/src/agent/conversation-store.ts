@@ -16,6 +16,8 @@ export interface ConversationStore {
   findOrCreate(key: ConversationKey, locale: "en" | "zh"): Promise<Conversation>;
   /** 一轮跑完后持久化 messages 和这轮新收的图片 */
   save(conv: Conversation): Promise<void>;
+  /** 美容师端按 id 看一个会话。调用方要自己核对 shopSlug，这里不认店 */
+  get(id: string): Promise<Conversation | undefined>;
 }
 
 export function conversationKey(k: ConversationKey): string {

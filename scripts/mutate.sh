@@ -28,6 +28,15 @@ MUTATIONS=(
   'packages/db/src/stores/bookings.ts@@s/and(eq(bookings.id, id), eq(bookings.status, "pending"))/eq(bookings.id, id)/@@Postgres 版 decide 不看 pending，已决定的还能再改'
   'packages/db/src/stores/shops.ts@@s/and(eq(shops.slug, slug), eq(shops.approved, true))/eq(shops.slug, slug)/@@agent 能看到没确认的草稿店铺'
   'apps/api/src/session-lock.ts@@s/const prev = tails.get(key) ?? Promise.resolve();/const prev = Promise.resolve();/@@同一会话并发轮次不串行'
+  'packages/core/src/booking/decision.ts@@s/if (status === "confirmed") throw new DecisionInputError/if (false) throw new DecisionInputError/@@确认时也能带替代时间'
+  'packages/core/src/booking/decision.ts@@s/alternatives.length > MAX_ALTERNATIVES/alternatives.length > 99/@@替代时段没有上限'
+  'packages/core/src/booking/ports.ts@@s/decision.status === "declined" \&\& decision.alternatives?.length/decision.alternatives?.length/@@存储层 confirmed 也存替代时段'
+  'apps/api/src/routes/groomer.ts@@s/conv.shopSlug !== c.req.param("shop")/false/g@@美容师端能看别家店的会话和图片'
+  'apps/api/src/routes/groomer.ts@@s/images: \[...conv.images.keys()\]/images: [...conv.images.entries()]/@@会话接口把 base64 图片吐出去'
+  'apps/api/src/routes/groomer.ts@@s/body.slug !== c.req.param("shop")/false/@@PUT shop 不校验 slug 和路径一致'
+  'packages/db/src/stores/shops.ts@@s/and(eq(shops.slug, cfg.slug), eq(shops.approved, true))/eq(shops.slug, cfg.slug)/@@美容师端 save 能改草稿店'
+  'packages/core/src/agent/transcript.ts@@s/if (c.type !== "text") continue;/if (false) continue;/@@轨迹把非文字块也当文字处理'
+  'packages/core/src/booking/ports.ts@@s/if (!taken.some((t) => t.start < end \&\& start < t.end)) out.push/if (true) out.push/@@日历不减掉已确认的预约'
 )
 
 files=()

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { Type, fauxAssistantMessage, fauxText } from "@earendil-works/pi-ai";
 import { ToolRegistry, defineTool, type ToolContext } from "../src/tools/registry.js";
 import { defaultTools, quoteTool, identifyPetTool, holdBookingTool } from "../src/tools/index.js";
-import { InMemoryBookingStore, InMemoryCalendar } from "../src/booking/ports.js";
+import { InMemoryBookingStore, InMemoryCalendar, bookingSlot } from "../src/booking/ports.js";
+import { parseDecision } from "../src/booking/decision.js";
+import { transcript } from "../src/agent/transcript.js";
+import { newConversation } from "../src/agent/loop.js";
 import { demoShop, fauxGateway } from "./fixtures.js";
 
 /**
@@ -117,5 +120,65 @@ describe("识图边界", () => {
     const r = await identifyPetTool.run({ imageId: "img_1" }, c);
     expect(r.isError).toBe(true);
     expect(r.text).toMatch(/could not parse/);
+  });
+});
+
+describe("美容师端的决定", () => {
+  it("alternatives only ride on a decline, at most three, distinct, in the booking's time format", () => {
+    expect(() => parseDecision({ status: "confirmed", by: "g", alternatives: ["2026-11-04T10:00"] })).toThrow(/declined/);
+    expect(() => parseDecision({ status: "declined", by: "g", alternatives: ["2026-11-04T10:00", "2026-11-04T11:00", "2026-11-04T12:00", "2026-11-04T13:00"] })).toThrow(/at most 3/);
+    expect(() => parseDecision({ status: "declined", by: "g", alternatives: ["2026-11-04T10:00", "2026-11-04T10:00"] })).toThrow(/distinct/);
+    expect(() => parseDecision({ status: "declined", by: "g", alternatives: ["2026-11-04T10:00:00"] })).toThrow(/YYYY-MM-DDTHH:MM/);
+    expect(() => parseDecision({ status: "declined", by: "g", alternatives: "2026-11-04T10:00" })).toThrow(/array/);
+    expect(() => parseDecision({ status: "cancelled", by: "g" })).toThrow(/status/);
+    expect(() => parseDecision({ status: "confirmed", by: "  " })).toThrow(/by/);
+    expect(parseDecision({ status: "declined", by: "g", alternatives: [] })).toEqual({ status: "declined", by: "g" });
+    expect(parseDecision({ status: "declined", by: " g ", reason: "x".repeat(600), alternatives: ["2026-11-04T11:00", "2026-11-04T10:00"] }))
+      .toEqual({ status: "declined", by: "g", reason: "x".repeat(500), alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
+  });
+  it("the in-memory store keeps alternatives only for a decline, like the Postgres one", async () => {
+    const store = new InMemoryBookingStore();
+    const mk = () => store.createPending({ shopSlug: "s", conversationId: "c", customer: { name: "A", contact: "0", channel: "web" }, pet: { species: "dog" }, serviceId: "x", durationMin: 60, start: `2026-11-03T1${store ? 0 : 0}:00` });
+    const a = await mk();
+    const confirmed = await store.decide(a.id, { status: "confirmed", by: "g", alternatives: ["2026-11-04T10:00"] });
+    expect(confirmed.alternatives).toBeUndefined();
+  });
+  it("a confirmed booking takes its slot out of the calendar", async () => {
+    const store = new InMemoryBookingStore();
+    const b = await store.createPending({ shopSlug: "s", conversationId: "c", customer: { name: "A", contact: "0", channel: "web" }, pet: { species: "dog" }, serviceId: "x", durationMin: 90, start: "2026-11-03T10:00" });
+    await store.decide(b.id, { status: "confirmed", by: "g" });
+    const calendar = new InMemoryCalendar(
+      () => ({ open: "09:00", close: "13:00" }),
+      async (date) => (await store.listByStatus("s", ["confirmed"])).filter((x) => x.start.startsWith(date)).map(bookingSlot),
+    );
+    expect(bookingSlot(b)).toEqual({ start: "2026-11-03T10:00", end: "2026-11-03T11:30" });
+    expect((await calendar.freeSlots("2026-11-03", 60)).map((s) => s.start)).toEqual(["2026-11-03T09:00", "2026-11-03T12:00"]);
+    expect((await calendar.freeSlots("2026-11-04", 60)).map((s) => s.start)).toHaveLength(4);
+  });
+});
+
+describe("美容师端只看到会话的文字和图片 id", () => {
+  it("transcript drops base64, system prompts and thinking, keeps text, image ids and tool outcomes", () => {
+    const conv = newConversation({ id: "c", shopSlug: "s", channel: "web", locale: "en" });
+    conv.images.set("img_1", { data: "QUJD", mimeType: "image/png" });
+    conv.messages.push(
+      { role: "system", content: "secret system prompt" } as never,
+      { role: "user", content: [{ type: "text", text: "how much for Milo?" }, { type: "text", text: "[image attached, imageId=img_1]" }, { type: "image", data: "QUJD", mimeType: "image/png" }], timestamp: 1 },
+      { role: "user", content: [{ type: "text", text: "[image attached, imageId=img_2]" }, { type: "text", text: "[image omitted from history]" }], timestamp: 2 },
+      { role: "assistant", content: [{ type: "thinking", thinking: "hmm" }, { type: "toolCall", id: "t1", name: "quote", arguments: {} }], api: "x", provider: "p", model: "m" } as never,
+      { role: "toolResult", toolCallId: "t1", toolName: "quote", content: [{ type: "text", text: "$90-120" }], isError: false, timestamp: 3 } as never,
+      { role: "assistant", content: [{ type: "text", text: "Around $90-120." }], api: "x", provider: "p", model: "m" } as never,
+    );
+    const entries = transcript(conv);
+    expect(entries).toEqual([
+      { role: "customer", text: "how much for Milo?", imageIds: ["img_1"], at: 1 },
+      { role: "tool", text: "$90-120", at: 3, tool: { name: "quote", isError: false } },
+      { role: "agent", text: "Around $90-120.", at: undefined },
+    ]);
+    const dump = JSON.stringify(entries);
+    expect(dump).not.toContain("QUJD");
+    expect(dump).not.toContain("secret");
+    expect(dump).not.toContain("hmm");
+    expect(dump).not.toContain("img_2"); // 已清掉的图不列
   });
 });

@@ -78,6 +78,15 @@ describe("PgShopRepo", () => {
     expect(again.written).toBe(true);
     expect((await shops.get("live"))?.name).toBe("Edited by groomer");
   });
+  it("save edits an approved shop in place and never touches drafts or unknown slugs", async () => {
+    await shops.upsert(shopConfig("draft"), { approved: false });
+    expect(await shops.save({ ...shopConfig("s1"), name: "Renamed" })).toBe(true);
+    expect((await shops.get("s1"))?.name).toBe("Renamed");
+    expect(await shops.save({ ...shopConfig("draft"), name: "Sneaky" })).toBe(false);
+    expect(await shops.get("draft")).toBeUndefined();
+    expect(await shops.save(shopConfig("ghost"))).toBe(false);
+    expect((await shops.list()).map((s) => s.slug)).not.toContain("ghost");
+  });
   it("rejects a config that fails the core schema", async () => {
     await expect(shops.upsert({ slug: "bad" }, { approved: true })).rejects.toThrow();
     expect(await shops.get("bad")).toBeUndefined();
@@ -115,6 +124,15 @@ describe("PgConversationStore", () => {
     expect(fresh.images.get("img_2")).toEqual({ data: "BBBB", mimeType: "image/jpeg" });
     const [row] = await db.select({ n: count() }).from(schema.conversationImages).where(eq(schema.conversationImages.conversationId, conv.id));
     expect(row?.n).toBe(2);
+  });
+  it("get by id returns the conversation with its images, or nothing", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "by-id" }, "zh");
+    conv.images.set("img_1", { data: "AAAA", mimeType: "image/png" });
+    await conversations.save(conv);
+    const got = await new PgConversationStore(db).get(conv.id);
+    expect(got).toMatchObject({ id: conv.id, shopSlug: "s1", locale: "zh" });
+    expect(got?.images.get("img_1")).toEqual({ data: "AAAA", mimeType: "image/png" });
+    expect(await conversations.get("cv_missing")).toBeUndefined();
   });
   it("expires images of idle conversations but keeps the text history", async () => {
     const idleKey = { shopSlug: "s1", channel: "web", externalId: "idle" };
@@ -180,6 +198,25 @@ describe("PgBookingStore", () => {
     // 决定过的不占槽位：同时段可以再挂一条新的待确认
     const again = await bookings.createPending(pendingInput(conv));
     expect(again.id).not.toBe(a.id);
+  });
+  it("alternatives are stored with a decline only, and the history lists a shop's decided bookings newest first", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-alt" }, "en");
+    const other = await conversations.findOrCreate({ shopSlug: "s2", channel: "web", externalId: "bk-alt" }, "en");
+    const a = await bookings.createPending(pendingInput(conv));
+    const b = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-03T11:00" });
+    const c = await bookings.createPending({ ...pendingInput(conv), start: "2026-11-03T12:00" });
+    await bookings.createPending(pendingInput(other));
+    const confirmed = await bookings.decide(a.id, { status: "confirmed", by: "g", alternatives: ["2026-11-04T10:00"] } as never);
+    expect(confirmed.alternatives).toBeUndefined();
+    const declined = await bookings.decide(b.id, { status: "declined", by: "g", alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
+    expect(declined.alternatives).toEqual(["2026-11-04T10:00", "2026-11-04T11:00"]);
+    expect((await bookings.get(b.id))?.alternatives).toEqual(["2026-11-04T10:00", "2026-11-04T11:00"]);
+    const history = await bookings.listByStatus("s1", ["confirmed", "declined"]);
+    expect(history.map((x) => x.id)).toEqual([b.id, a.id]);
+    expect(await bookings.listByStatus("s1", ["pending"])).toHaveLength(1);
+    expect((await bookings.listByStatus("s1", ["pending"]))[0]?.id).toBe(c.id);
+    expect(await bookings.listByStatus("s1", ["confirmed", "declined"], 1)).toHaveLength(1);
+    expect(await bookings.listByStatus("s2", ["confirmed", "declined"])).toHaveLength(0);
   });
   it("two groomers deciding at once: exactly one wins", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-race" }, "en");

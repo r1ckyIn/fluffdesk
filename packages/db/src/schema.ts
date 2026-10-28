@@ -67,6 +67,8 @@ export const bookings = pgTable(
     decidedAt: timestamp("decided_at", { withTimezone: true }),
     decidedBy: text("decided_by"),
     declineReason: text("decline_reason"),
+    /** 拒绝时给的替代时段，和 start 同格式；只有 declined 才有值 */
+    alternatives: jsonb("alternatives").$type<string[]>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

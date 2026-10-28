@@ -1,10 +1,10 @@
 import { and, asc, eq, or, sql } from "drizzle-orm";
-import { parseShopConfig, type ShopConfig, type ShopRepo } from "@fluffdesk/core";
+import { parseShopConfig, type ShopConfig, type ShopEditor, type ShopRepo } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { shops } from "../schema.js";
 
 /** 只回 approved 的店：草稿在美容师确认前 agent 看不到 */
-export class PgShopRepo implements ShopRepo {
+export class PgShopRepo implements ShopRepo, ShopEditor {
   constructor(private readonly db: Db) {}
 
   async get(slug: string): Promise<ShopConfig | undefined> {
@@ -19,6 +19,17 @@ export class PgShopRepo implements ShopRepo {
   async list(): Promise<ShopConfig[]> {
     const rows = await this.db.select({ config: shops.config }).from(shops).where(eq(shops.approved, true)).orderBy(asc(shops.slug));
     return rows.map((r) => parseShopConfig(r.config));
+  }
+
+  /** 美容师端改资料：只改已确认的店，草稿和不存在的店回 false。整份覆盖，先过 core 的 schema */
+  async save(config: ShopConfig): Promise<boolean> {
+    const cfg = parseShopConfig(config);
+    const rows = await this.db
+      .update(shops)
+      .set({ config: cfg, updatedAt: new Date() })
+      .where(and(eq(shops.slug, cfg.slug), eq(shops.approved, true)))
+      .returning({ slug: shops.slug });
+    return rows.length > 0;
   }
 
   /**
