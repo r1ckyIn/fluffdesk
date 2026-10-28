@@ -19,6 +19,7 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
   const [shop, setShop] = useState<ShopConfig | null>(null);
   const [pending, setPending] = useState<Booking[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     const s = readSession();
@@ -44,6 +45,11 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
     },
     [signOut, t],
   );
+
+  const notify = useCallback((text: string) => {
+    setNotice(text);
+    setTimeout(() => setNotice((cur) => (cur === text ? null : cur)), 4000);
+  }, []);
 
   const refreshPending = useCallback(async () => {
     if (!session) return;
@@ -84,15 +90,18 @@ export default function GroomerShopLayout({ children }: { children: ReactNode })
             refreshPending,
             dropPending: (id: string) => setPending((p) => (p ? p.filter((b) => b.id !== id) : p)),
             signOut,
+            reportError: onError,
+            notify,
           }
         : null,
-    [session, shop, pending, refreshPending, signOut],
+    [session, shop, pending, refreshPending, signOut, onError, notify],
   );
 
   if (session === undefined || session === null) return null;
   return (
     <Shell session={session} shop={shop} pendingCount={pending?.length ?? 0}>
       {error && <div className="notice notice-bad" role="alert" style={{ margin: "var(--space-4) var(--space-5) 0" }}>{error}</div>}
+      {notice && <div className="notice notice-ok" role="status" style={{ margin: "var(--space-4) var(--space-5) 0" }}>{notice}</div>}
       {value ? <GroomerContext.Provider value={value}>{children}</GroomerContext.Provider> : null}
     </Shell>
   );

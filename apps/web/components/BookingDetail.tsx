@@ -16,7 +16,7 @@ import { Transcript } from "./Transcript";
  * 决定 → 需要的话纠正 agent → 看原始对话。一屏里只有一个主按钮（确认）。
  */
 export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking; onDecided?: (b: Booking) => void; onBack?: () => void }) {
-  const { session, shop } = useGroomer();
+  const { session, shop, notify } = useGroomer();
   const { t, locale } = useLocale();
   const [declining, setDeclining] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -31,19 +31,20 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
     setFlash(null);
     setPhotos([]);
     let alive = true;
-    api.bookings(session, "decided").then((all) => alive && setConfirmed(all.filter((b) => b.status === "confirmed"))).catch(() => {});
+    api.confirmedOn(session, booking.start.slice(0, 10)).then((all) => alive && setConfirmed(all)).catch(() => {});
     api.corrections(session).then((all) => alive && setCorrections(all.filter((c) => c.conversationId === booking.conversationId))).catch(() => {});
     return () => {
       alive = false;
     };
-  }, [session, booking.id, booking.conversationId]);
+  }, [session, booking.id, booking.conversationId, booking.start]);
 
   async function decide(status: "confirmed" | "declined", reason?: string, alternatives?: string[]) {
     if (busy) return;
     setBusy(true);
     try {
       const b = await api.decide(session, booking.id, { status, reason: reason || undefined, alternatives: alternatives?.length ? alternatives : undefined });
-      setFlash({ kind: "ok", text: t(status === "confirmed" ? "action.confirmed" : "action.declined") });
+      // 成功提示交给布局：onDecided 会把这条从队列拿掉，这个组件随之卸载，自己的 flash 没机会显示
+      notify(t(status === "confirmed" ? "action.confirmed" : "action.declined"));
       setDeclining(false);
       onDecided?.(b);
     } catch (e) {
@@ -69,12 +70,9 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
           <div className="sub">
             <StatusPill status={booking.status} />
             {booking.pet.breedGuess ? <span>{booking.pet.breedGuess}</span> : null}
-            {booking.pet.breedGuess ? <span aria-hidden="true">·</span> : null}
-            <span>{serviceName(shop, booking.serviceId, locale)}</span>
-            <span aria-hidden="true">·</span>
-            <span className="num">{fmtWhen(booking.start, locale)}</span>
-            <span aria-hidden="true">·</span>
-            <span className="num">{fmtRange(booking.quote)}</span>
+            <span className="dotted">{booking.pet.breedGuess ? <span aria-hidden="true">· </span> : null}{serviceName(shop, booking.serviceId, locale)}</span>
+            <span className="dotted num"><span aria-hidden="true">· </span>{fmtWhen(booking.start, locale)}</span>
+            <span className="dotted num"><span aria-hidden="true">· </span>{fmtRange(booking.quote)}</span>
           </div>
         </div>
         {!readOnly && !declining && (

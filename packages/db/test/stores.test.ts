@@ -173,6 +173,19 @@ describe("PgBookingStore", () => {
     expect((await bookings.listPendingForConversation(conv.id)).map((x) => x.id)).toEqual([b.id]);
     expect(await bookings.listPendingForConversation(other.id)).toHaveLength(1);
   });
+  it("lists a day's confirmed bookings by start, ignoring other days, pending and declined ones", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-day" }, "en");
+    const at = (start: string) => ({ ...pendingInput(conv), start });
+    const late = await bookings.createPending(at("2026-11-05T14:00"));
+    const early = await bookings.createPending(at("2026-11-05T09:00"));
+    const other = await bookings.createPending(at("2026-11-06T09:00"));
+    const declined = await bookings.createPending(at("2026-11-05T10:00"));
+    await bookings.createPending(at("2026-11-05T11:00")); // pending
+    for (const b of [late, early, other]) await bookings.decide(b.id, { status: "confirmed", by: "g" });
+    await bookings.decide(declined.id, { status: "declined", by: "g" });
+    expect((await bookings.listConfirmedOn("s1", "2026-11-05")).map((b) => b.id)).toEqual([early.id, late.id]);
+    expect(await bookings.listConfirmedOn("s2", "2026-11-05")).toEqual([]);
+  });
   it("only a pending booking can be decided, and only once", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-decide" }, "en");
     const b = await bookings.createPending(pendingInput(conv));

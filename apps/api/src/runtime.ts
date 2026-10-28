@@ -22,7 +22,11 @@ export interface Runtime {
   conversations: ConversationStore;
   bookings: BookingStore;
   corrections: CorrectionStore;
-  limits: { perIp: RateLimiter; perSession: RateLimiter };
+  /**
+   * perIp / perSession 是公网聊天的预算。美容师端一次操作就十来个请求，不能和它共用：
+   * groomerIp 给已鉴权的正常使用，groomerAuth 只数鉴权失败，猜令牌的那条路还是窄的
+   */
+  limits: { perIp: RateLimiter; perSession: RateLimiter; groomerIp: RateLimiter; groomerAuth: RateLimiter };
   traceSinks: TraceSink[];
   newTracer(conversationId: string): Tracer;
   calendarFor(shop: ShopConfig): InMemoryCalendar;
@@ -44,7 +48,7 @@ export function createRuntime(env: Record<string, string | undefined> = process.
   return {
     gateway: createGateway(),
     ...persistence,
-    limits: { perIp: new RateLimiter(60, 60_000), perSession: new RateLimiter(20, 60_000) },
+    limits: { perIp: new RateLimiter(60, 60_000), perSession: new RateLimiter(20, 60_000), groomerIp: new RateLimiter(600, 60_000), groomerAuth: new RateLimiter(10, 60_000) },
     newTracer: (id) => new Tracer(id, persistence.traceSinks),
     // 日历 = 营业时间减掉已确认的预约：美容师点了确认，agent 和替代时段选择器就都看不到那个空档了
     calendarFor: (shop) =>
@@ -53,7 +57,7 @@ export function createRuntime(env: Record<string, string | undefined> = process.
           const day = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][new Date(`${date}T00:00:00`).getDay()] as keyof ShopConfig["hours"];
           return shop.hours[day] ?? null;
         },
-        async (date) => (await persistence.bookings.listByStatus(shop.slug, ["confirmed"], 500)).filter((b) => b.start.startsWith(date)).map(bookingSlot),
+        async (date) => (await persistence.bookings.listConfirmedOn(shop.slug, date)).map(bookingSlot),
       ),
     tools: defaultTools(),
   };

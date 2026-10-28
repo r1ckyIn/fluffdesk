@@ -20,6 +20,8 @@ export interface BookingStore {
   listPending(shopSlug: string): Promise<Booking[]>;
   /** 美容师端的历史：按状态过滤，决定时间倒序（没决定的按创建时间倒序），有上限 */
   listByStatus(shopSlug: string, statuses: BookingStatus[], limit?: number): Promise<Booking[]>;
+  /** 某一天（店铺时区的 YYYY-MM-DD）已确认的预约，按开始时间升序，不设上限：日历和当天安排都从这里取，不能用"最近 N 条决定"代替 */
+  listConfirmedOn(shopSlug: string, date: string): Promise<Booking[]>;
   /** 一个会话的待确认预约：hold_booking 用它限流和查重 */
   listPendingForConversation(conversationId: string): Promise<Booking[]>;
   /** 客人改了联系方式或宠物信息再提交同一时段：更新那条待确认的，还是 pending。不是 pending 就抛 BookingStateError */
@@ -27,10 +29,13 @@ export interface BookingStore {
   decide(id: string, decision: Decision): Promise<Booking>;
 }
 
-/** 内存实现：开发、测试、demo 用。id 生成器可注入：录制回放要求工具结果确定，不能带随机数 */
+/** 内存实现：开发、测试、demo 用。id 生成器和时钟都可注入：录制回放要求工具结果确定，测试要能造出先后顺序而不用睡 */
 export class InMemoryBookingStore implements BookingStore {
   private items = new Map<string, Booking>();
-  constructor(private readonly nextId: () => string = () => `bk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`) {}
+  constructor(
+    private readonly nextId: () => string = () => `bk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+    private readonly now: () => string = () => new Date().toISOString(),
+  ) {}
 
   /** 同会话、同服务、同时段已经挂着就回那条：和 Postgres 版的部分唯一索引同一个语义 */
   async createPending(input: Omit<Booking, "id" | "status" | "createdAt">): Promise<Booking> {
@@ -40,7 +45,7 @@ export class InMemoryBookingStore implements BookingStore {
       ...input,
       id: this.nextId(),
       status: "pending",
-      createdAt: new Date().toISOString(),
+      createdAt: this.now(),
     };
     this.items.set(booking.id, booking);
     return booking;
@@ -57,6 +62,11 @@ export class InMemoryBookingStore implements BookingStore {
       .sort((a, b) => (b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt))
       .slice(0, limit);
   }
+  async listConfirmedOn(shopSlug: string, date: string) {
+    return [...this.items.values()]
+      .filter((b) => b.shopSlug === shopSlug && b.status === "confirmed" && b.start.slice(0, 10) === date)
+      .sort((a, b) => a.start.localeCompare(b.start));
+  }
   async listPendingForConversation(conversationId: string) {
     return [...this.items.values()].filter((b) => b.conversationId === conversationId && b.status === "pending");
   }
@@ -71,7 +81,7 @@ export class InMemoryBookingStore implements BookingStore {
     const b = this.items.get(id);
     if (!b) throw new BookingStateError(`booking not found: ${id}`);
     if (b.status !== "pending") throw new BookingStateError(`booking ${id} already ${b.status}`);
-    Object.assign(b, { status: decision.status, decidedAt: new Date().toISOString(), decidedBy: decision.by, declineReason: decision.reason, ...decidedFields(decision) });
+    Object.assign(b, { status: decision.status, decidedAt: this.now(), decidedBy: decision.by, declineReason: decision.reason, ...decidedFields(decision) });
     return b;
   }
 }

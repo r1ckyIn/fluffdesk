@@ -16,8 +16,9 @@ export function ShopForm() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(shop), [draft, shop]);
-  const existingServiceIds = useMemo(() => new Set(shop.services.map((s) => s.id)), [shop]);
-  const existingTierIds = useMemo(() => new Set(shop.sizeTiers.map((s) => s.id)), [shop]);
+  // 哪些行是从已保存的资料来的（这些行的 id 只读）。按行记，不按 id 的值记：新行里敲出一个已有的 id 不能把自己锁死
+  const [savedServiceRows, setSavedServiceRows] = useState<boolean[]>(() => shop.services.map(() => true));
+  const [savedTierRows, setSavedTierRows] = useState<boolean[]>(() => shop.sizeTiers.map(() => true));
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -28,6 +29,8 @@ export function ShopForm() {
       const saved = await api.saveShop(session, normalise(draft));
       setShop(saved);
       setDraft(structuredClone(saved));
+      setSavedServiceRows(saved.services.map(() => true));
+      setSavedTierRows(saved.sizeTiers.map(() => true));
       setMsg({ kind: "ok", text: t("shop.saved") });
     } catch (err) {
       setMsg({ kind: "bad", text: `${t("shop.invalid")} ${err instanceof ApiError ? err.message : t("error.generic")}` });
@@ -102,14 +105,14 @@ export function ShopForm() {
           {draft.sizeTiers.map((tier, i) => (
             <div key={i} className="service-card">
               <div className="form-row">
-                <label className="field"><span>{t("shop.tier.id")}</span><input className="input" value={tier.id} readOnly={existingTierIds.has(tier.id)} onChange={(e) => setTier(i, { id: e.target.value })} pattern="[a-z0-9-]+" required /></label>
+                <label className="field"><span>{t("shop.tier.id")}</span><input className="input" value={tier.id} readOnly={savedTierRows[i] === true} onChange={(e) => setTier(i, { id: e.target.value })} pattern="[a-z0-9-]+" required /></label>
                 <label className="field"><span>{t("shop.tier.maxKg")}</span><input className="input num" inputMode="decimal" value={tier.maxKg ?? ""} onChange={(e) => setTier(i, { maxKg: e.target.value === "" ? undefined : Number(e.target.value) })} /></label>
-                <button type="button" className="btn btn-quiet" onClick={() => setDraft({ ...draft, sizeTiers: draft.sizeTiers.filter((_, j) => j !== i) })} disabled={draft.sizeTiers.length <= 1}>{t("shop.remove")}</button>
+                <button type="button" className="btn btn-quiet" onClick={() => { setDraft({ ...draft, sizeTiers: draft.sizeTiers.filter((_, j) => j !== i) }); setSavedTierRows((r) => r.filter((_, j) => j !== i)); }} disabled={draft.sizeTiers.length <= 1}>{t("shop.remove")}</button>
               </div>
               {i18nField(tier.label, (label) => setTier(i, { label }), t("shop.tier.label"))}
             </div>
           ))}
-          <div><button type="button" className="btn btn-outline" onClick={() => setDraft({ ...draft, sizeTiers: [...draft.sizeTiers, { id: "", label: { en: "", zh: "" } }] })}>{t("shop.addTier")}</button></div>
+          <div><button type="button" className="btn btn-outline" onClick={() => { setDraft({ ...draft, sizeTiers: [...draft.sizeTiers, { id: "", label: { en: "", zh: "" } }] }); setSavedTierRows((r) => [...r, false]); }}>{t("shop.addTier")}</button></div>
         </div>
       </section>
 
@@ -119,9 +122,9 @@ export function ShopForm() {
           {draft.services.map((svc, i) => (
             <div key={i} className="service-card">
               <div className="form-row">
-                <label className="field"><span>{t("shop.service.id")}</span><input className="input" value={svc.id} readOnly={existingServiceIds.has(svc.id)} onChange={(e) => setService(i, { id: e.target.value })} pattern="[a-z0-9-]+" required /></label>
+                <label className="field"><span>{t("shop.service.id")}</span><input className="input" value={svc.id} readOnly={savedServiceRows[i] === true} onChange={(e) => setService(i, { id: e.target.value })} pattern="[a-z0-9-]+" required /></label>
                 <label className="field"><span>{t("shop.service.duration")}</span><input className="input num" inputMode="numeric" value={svc.durationMin} onChange={(e) => setService(i, { durationMin: Number(e.target.value) })} min={15} step={15} type="number" required /></label>
-                <button type="button" className="btn btn-quiet" onClick={() => setDraft({ ...draft, services: draft.services.filter((_, j) => j !== i) })} disabled={draft.services.length <= 1}>{t("shop.remove")}</button>
+                <button type="button" className="btn btn-quiet" onClick={() => { setDraft({ ...draft, services: draft.services.filter((_, j) => j !== i) }); setSavedServiceRows((r) => r.filter((_, j) => j !== i)); }} disabled={draft.services.length <= 1}>{t("shop.remove")}</button>
               </div>
               {i18nField(svc.name, (name) => setService(i, { name }), t("shop.service.name"))}
               {svc.prices.map((p, k) => (
@@ -147,7 +150,7 @@ export function ShopForm() {
               <div><button type="button" className="btn btn-quiet" onClick={() => setService(i, { prices: [...svc.prices, { size: draft.sizeTiers[0]?.id ?? "", min: 0, max: 0 }] })}>{t("shop.addPrice")}</button></div>
             </div>
           ))}
-          <div><button type="button" className="btn btn-outline" onClick={() => setDraft({ ...draft, services: [...draft.services, { id: "", name: { en: "", zh: "" }, durationMin: 60, prices: [{ size: draft.sizeTiers[0]?.id ?? "", min: 0, max: 0 }] }] })}>{t("shop.addService")}</button></div>
+          <div><button type="button" className="btn btn-outline" onClick={() => { setDraft({ ...draft, services: [...draft.services, { id: "", name: { en: "", zh: "" }, durationMin: 60, prices: [{ size: draft.sizeTiers[0]?.id ?? "", min: 0, max: 0 }] }] }); setSavedServiceRows((r) => [...r, false]); }}>{t("shop.addService")}</button></div>
         </div>
       </section>
 

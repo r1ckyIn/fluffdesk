@@ -33,7 +33,7 @@ function testRuntime(): Runtime {
     bookings,
     corrections: new MemoryCorrectionStore(),
     traceSinks: [],
-    limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000) },
+    limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000), groomerIp: new RateLimiter(100, 60_000), groomerAuth: new RateLimiter(5, 60_000) },
     newTracer: (id) => new Tracer(id),
     calendarFor: () => new InMemoryCalendar(() => null),
     tools: defaultTools(),
@@ -48,30 +48,34 @@ const TOKEN = "0123456789abcdef0123";
 const auth = { authorization: `Bearer ${TOKEN}` };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const jsonOf = async (r: Response) => (await r.json()) as any;
-/** 这些用例一条里要打六七个请求，超过 testRuntime 给的每 IP 5 次 */
-const roomyRuntime = () => {
-  const rt = testRuntime();
-  rt.limits.perIp = new RateLimiter(100, 60_000);
-  return rt;
+/** 可控时钟：每调一次往后走一秒，测排序不用睡 */
+const ticking = () => {
+  let t = Date.parse("2026-10-28T00:00:00Z");
+  return () => new Date((t += 1000)).toISOString();
 };
 
 describe("groomer routes", () => {
   it("fail closed when no token is configured", async () => {
     const app = createApp(testRuntime(), {});
-    const r = await app.request("/groomer/s1/bookings/pending");
+    const r = await app.request("/groomer/s1/bookings");
     expect(r.status).toBe(503);
   });
   it("rejects missing or wrong bearer token", async () => {
     const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN });
-    expect((await app.request("/groomer/s1/bookings/pending")).status).toBe(401);
-    expect((await app.request("/groomer/s1/bookings/pending", { headers: { authorization: "Bearer nope" } })).status).toBe(401);
-    expect((await app.request("/groomer/s1/bookings/pending", { headers: auth })).status).toBe(200);
+    expect((await app.request("/groomer/s1/bookings")).status).toBe(401);
+    expect((await app.request("/groomer/s1/bookings", { headers: { authorization: "Bearer nope" } })).status).toBe(401);
+    expect((await app.request("/groomer/s1/bookings", { headers: auth })).status).toBe(200);
   });
-  it("rate limits token guessing per ip", async () => {
+  it("rate limits token guessing per ip without locking out the real token", async () => {
     const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN });
-    const guess = () => app.request("/groomer/s1/bookings/pending", { headers: { authorization: "Bearer nope", "x-forwarded-for": "9.9.9.9" } });
+    const guess = () => app.request("/groomer/s1/bookings", { headers: { authorization: "Bearer nope", "x-forwarded-for": "9.9.9.9" } });
     for (let i = 0; i < 5; i++) expect((await guess()).status).toBe(401);
     expect((await guess()).status).toBe(429);
+    expect((await app.request("/groomer/s1/bookings", { headers: { ...auth, "x-forwarded-for": "9.9.9.9" } })).status).toBe(200);
+  });
+  it("groomer traffic has its own per-ip budget, separate from the public chat limit", async () => {
+    const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN }); // 聊天的每 IP 预算是 5
+    for (let i = 0; i < 8; i++) expect((await app.request("/groomer/s1/bookings", { headers: auth })).status).toBe(200);
   });
   it("binds bookings to the shop in the path and 404s unknown shops", async () => {
     const rt = testRuntime();
@@ -81,7 +85,7 @@ describe("groomer routes", () => {
     expect((await decide("s1")).status).toBe(404);
     expect((await rt.bookings.get(b.id))?.status).toBe("pending");
     expect((await decide("other-shop")).status).toBe(404); // 这家店不在运行时里
-    expect((await app.request("/groomer/nope/bookings/pending", { headers: auth })).status).toBe(404);
+    expect((await app.request("/groomer/nope/bookings", { headers: auth })).status).toBe(404);
   });
   it("decide answers 409 for a decided booking but hides storage errors behind a generic 500", async () => {
     const rt = testRuntime();
@@ -100,22 +104,37 @@ describe("groomer routes", () => {
   });
   it("lists the queue and the history separately, newest decision first", async () => {
     const rt = testRuntime();
+    rt.bookings = new InMemoryBookingStore(undefined, ticking());
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
     const mk = (start: string) => rt.bookings.createPending({ shopSlug: "s1", conversationId: "c", customer: { name: "A", contact: "0400", channel: "web" }, pet: { species: "dog" }, serviceId: "bath", durationMin: 60, start });
     const a = await mk("2026-11-03T10:00");
     const b = await mk("2026-11-03T11:00");
     await mk("2026-11-03T12:00");
     await rt.bookings.decide(a.id, { status: "confirmed", by: "g" });
-    await new Promise((r) => setTimeout(r, 5));
     await rt.bookings.decide(b.id, { status: "declined", by: "g" });
     const pending = await jsonOf(await app.request("/groomer/s1/bookings", { headers: auth }));
     expect(pending.items.map((x: { status: string }) => x.status)).toEqual(["pending"]);
     const decided = await jsonOf(await app.request("/groomer/s1/bookings?status=decided", { headers: auth }));
     expect(decided.items.map((x: { id: string }) => x.id)).toEqual([b.id, a.id]);
     expect((await app.request("/groomer/s1/bookings?status=nope", { headers: auth })).status).toBe(400);
+    expect((await app.request("/groomer/s1/bookings?status=constructor", { headers: auth })).status).toBe(400); // 原型链上的键不是视图
+  });
+  it("?date= lists every confirmed booking of that day, nothing else", async () => {
+    const rt = testRuntime();
+    const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
+    const mk = (start: string) => rt.bookings.createPending({ shopSlug: "s1", conversationId: `c-${start}`, customer: { name: "A", contact: "0400", channel: "web" }, pet: { species: "dog" }, serviceId: "bath", durationMin: 60, start });
+    const late = await mk("2026-11-03T14:00");
+    const early = await mk("2026-11-03T09:00");
+    const otherDay = await mk("2026-11-04T09:00");
+    await mk("2026-11-03T11:00"); // 还是 pending，不算
+    for (const x of [late, early, otherDay]) await rt.bookings.decide(x.id, { status: "confirmed", by: "g" });
+    const day = await jsonOf(await app.request("/groomer/s1/bookings?date=2026-11-03", { headers: auth }));
+    expect(day.items.map((x: { id: string }) => x.id)).toEqual([early.id, late.id]);
+    expect((await app.request("/groomer/s1/bookings?date=2026-11-3", { headers: auth })).status).toBe(400);
+    expect((await app.request("/groomer/s1/bookings?date=2026-11-03&status=pending", { headers: auth })).status).toBe(400);
   });
   it("alternatives: only with declined, at most three, in the booking's own time format", async () => {
-    const rt = roomyRuntime();
+    const rt = testRuntime();
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
     const b = await rt.bookings.createPending({ shopSlug: "s1", conversationId: "c", customer: { name: "A", contact: "0400", channel: "web" }, pet: { species: "dog" }, serviceId: "bath", durationMin: 60, start: "2026-11-03T10:00" });
     const decide = (body: unknown) => app.request(`/groomer/s1/bookings/${b.id}/decide`, json(body, auth));
@@ -128,7 +147,7 @@ describe("groomer routes", () => {
     expect((await jsonOf(ok)).booking).toMatchObject({ status: "declined", alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
   });
   it("conversations: bound to the shop, text and image ids only, image bytes by id", async () => {
-    const rt = roomyRuntime();
+    const rt = testRuntime();
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
     const conv = await rt.conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "sess-view" }, "en");
     const png = "iVBORw0KGgo=";
@@ -148,6 +167,7 @@ describe("groomer routes", () => {
     const img = await app.request(`/groomer/s1/conversations/${encodeURIComponent(conv.id)}/images/img_1`, { headers: auth });
     expect(img.status).toBe(200);
     expect(img.headers.get("content-type")).toBe("image/png");
+    expect(img.headers.get("cache-control")).toMatch(/no-store/); // 客人照片不进缓存
     expect(Buffer.from(await img.arrayBuffer()).toString("base64")).toBe(png);
     expect((await app.request(`/groomer/s1/conversations/${encodeURIComponent(conv.id)}/images/img_2`, { headers: auth })).status).toBe(404);
     expect((await app.request(`/groomer/s1/conversations/${encodeURIComponent(conv.id)}/images/..%2F..`, { headers: auth })).status).toBe(404);
@@ -164,7 +184,7 @@ describe("groomer routes", () => {
     expect((await jsonOf(r)).slots.map((s: { start: string }) => s.start)).toEqual(["2026-11-03T09:00", "2026-11-03T10:00"]);
   });
   it("shop edits must keep the slug of the path and pass the schema", async () => {
-    const rt = roomyRuntime();
+    const rt = testRuntime();
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
     const put = (body: unknown) => app.request("/groomer/s1/shop", { ...json(body, auth), method: "PUT" });
     expect((await put({ ...shop, slug: "s2" })).status).toBe(400);

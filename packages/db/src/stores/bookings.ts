@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { BookingStateError, decidedFields, type Booking, type BookingStatus, type BookingStore, type Decision } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { bookings } from "../schema.js";
@@ -66,6 +66,16 @@ export class PgBookingStore implements BookingStore {
       .where(and(eq(bookings.shopSlug, shopSlug), inArray(bookings.status, statuses)))
       .orderBy(desc(sql`coalesce(${bookings.decidedAt}, ${bookings.createdAt})`))
       .limit(limit);
+    return rows.map(toBooking);
+  }
+
+  /** 某天已确认的预约：按 start 的日期前缀查，不设上限。start 是店铺本地时间字符串，前缀比较就是按天 */
+  async listConfirmedOn(shopSlug: string, date: string): Promise<Booking[]> {
+    const rows = await this.db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.shopSlug, shopSlug), eq(bookings.status, "confirmed"), like(bookings.start, `${date}T%`)))
+      .orderBy(asc(bookings.start));
     return rows.map(toBooking);
   }
 

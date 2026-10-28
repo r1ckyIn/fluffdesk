@@ -37,6 +37,14 @@ MUTATIONS=(
   'packages/db/src/stores/shops.ts@@s/and(eq(shops.slug, cfg.slug), eq(shops.approved, true))/eq(shops.slug, cfg.slug)/@@美容师端 save 能改草稿店'
   'packages/core/src/agent/transcript.ts@@s/if (c.type !== "text") continue;/if (false) continue;/@@轨迹把非文字块也当文字处理'
   'packages/core/src/booking/ports.ts@@s/if (!taken.some((t) => t.start < end \&\& start < t.end)) out.push/if (true) out.push/@@日历不减掉已确认的预约'
+  'packages/core/src/booking/ports.ts@@s/(b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt)/(a.decidedAt ?? a.createdAt).localeCompare(b.decidedAt ?? b.createdAt)/@@历史列表变成最旧的在前'
+  'packages/core/src/booking/decision.ts@@s/new Set(alternatives).size !== alternatives.length/false/@@替代时段允许重复'
+  'packages/core/src/booking/ports.ts@@s/b.status === "confirmed" \&\& b.start.slice(0, 10) === date/b.status === "confirmed"/@@按日期查已确认预约时不看日期'
+  'packages/db/src/stores/bookings.ts@@s/eq(bookings.status, "confirmed"), like(bookings.start, `${date}T%`)/eq(bookings.status, "confirmed")/@@Postgres 版按日期查已确认预约时不看日期'
+  'packages/core/src/shop/schema.ts@@s/for (const id of duplicates(serviceIds))/for (const id of [])/@@店铺资料允许重复的服务 id'
+  'packages/core/src/shop/schema.ts@@s/if (!tiers.has(p.size))/if (false)/@@价目可以指向不存在的体型档'
+  'apps/api/src/routes/groomer.ts@@s/if (!limits.groomerAuth.take(ip)) return c.json/if (false) return c.json/@@猜令牌不限流'
+  'apps/api/src/routes/groomer.ts@@s/Object.hasOwn(STATUS_VIEWS, view)/view in STATUS_VIEWS/@@status 查询能命中原型链上的键'
 )
 
 files=()

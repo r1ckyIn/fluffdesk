@@ -10,11 +10,9 @@ allowed-tools: Bash(git diff *), Bash(git status *), Bash(git log *), Bash(npm t
 
 # 测试写法审查
 
-参数：`$ARGUMENTS`。第一个词是基准（空则用 `origin/main`）；`--scores "..."` 是调用方（通常是 `/pr-review`）刚跑过的门禁结果。这个 skill 在独立的子代理里跑，看不到写代码的那段对话，只看仓库和 diff，这是有意的：作者不审自己。本次改动的文件：
+参数：`$ARGUMENTS`。第一个词是基准（空则用 `origin/main`）；`--scores "..."` 是调用方（通常是 `/pr-review`）刚跑过的门禁结果。这个 skill 在独立的子代理里跑，看不到写代码的那段对话，只看仓库和 diff，这是有意的：作者不审自己。
 
-```!
-set -- $ARGUMENTS; base="${1:-origin/main}"; case "$base" in --scores) base=origin/main;; esac; echo "base: $base"; git diff --stat "$base"...HEAD
-```
+第一步自己跑：`git diff --stat <基准>...HEAD`（基准为空或参数以 `--scores` 开头时用 `origin/main`），把输出作为改动文件清单。
 
 先读 `docs/adr/0001-testing-strategy.md` 的"决定"和"不做什么"两节，再按下面十条逐一核对。每条都要给出结论和证据（文件:行），没涉及的写"不涉及"。
 

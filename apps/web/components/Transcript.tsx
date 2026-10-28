@@ -9,7 +9,8 @@ import type { ConversationView } from "@/lib/types";
 export function Transcript({ conversationId, onImages }: { conversationId: string; onImages?: (urls: string[]) => void }) {
   const { session } = useGroomer();
   const { t } = useLocale();
-  const [view, setView] = useState<ConversationView | null | undefined>(undefined);
+  // undefined = 加载中；null = 404，会话真的不在了；"error" = 别的失败（限流、断网、500），不能说成"不在了"
+  const [view, setView] = useState<ConversationView | null | "error" | undefined>(undefined);
   const [urls, setUrls] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -39,7 +40,7 @@ export function Transcript({ conversationId, onImages }: { conversationId: strin
         setUrls(next);
         onImages?.(Object.values(next));
       })
-      .catch((e) => alive && setView(e instanceof ApiError && e.status === 404 ? null : null));
+      .catch((e) => alive && setView(e instanceof ApiError && e.status === 404 ? null : "error"));
     return () => {
       alive = false;
       for (const u of created) URL.revokeObjectURL(u);
@@ -50,6 +51,7 @@ export function Transcript({ conversationId, onImages }: { conversationId: strin
 
   if (view === undefined) return <p className="muted">{t("chat.loading")}</p>;
   if (view === null) return <p className="muted">{t("chat.gone")}</p>;
+  if (view === "error") return <p className="muted">{t("chat.error")}</p>;
   return (
     <div className="chat">
       {view.entries.map((e, i) => {

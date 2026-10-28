@@ -18,3 +18,13 @@
 ```
 
 ---
+
+## 检查或测试依赖 dist 构建产物，而不是源码或提交进仓库的文件
+- 状态：待审
+- 出现：PR #1 code-review（2026-10-27）；chore/taste-skill#1（2026-10-28）
+- 原文：
+  - PR #1：vitest 把 `@fluffdesk/core` 解析到 `packages/core/dist`，dist 只在 `tsc -b` 时更新，回放测试和 eval 可能跑的是改动前的代码，变异对回放层没有检测力
+  - chore/taste-skill#1：`packages/design/scripts/tokens-to-css.mjs:10` 的 `--check` 比对 `packages/design/dist/tokens.css`，dist 被 gitignore、CI 里 `npm ci --ignore-scripts` 不构建，`existsSync` 为 false → 每个 PR 的 `design:check` 都红
+- 当时怎么处理：PR #1 修（vitest alias 指向 src）；chore/taste-skill#1 修（--check 只比对提交进仓库的 apps/web/app/tokens.css，dist 存在才比）
+- 建议写到哪：test-review 第 10 条旁边加一条"CI 里跑的脚本不能依赖 gitignore 的产物（dist/、.next/、node_modules 以外的生成文件）；本地绿 CI 红的第一嫌疑就是它"；或 CLAUDE.md 测试纪律一行
+- 决定：

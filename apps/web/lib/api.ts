@@ -29,6 +29,8 @@ export const api = {
   shop: (s: GroomerSession) => call<{ shop: ShopConfig }>(s, "/shop").then((x) => x.shop),
   saveShop: (s: GroomerSession, shop: ShopConfig) => call<{ shop: ShopConfig }>(s, "/shop", { method: "PUT", body: JSON.stringify(shop) }).then((x) => x.shop),
   bookings: (s: GroomerSession, status: "pending" | "decided" | "all") => call<{ items: Booking[] }>(s, `/bookings?status=${status}`).then((x) => x.items),
+  /** 某天已确认的全部预约：当天安排条用它，不用"最近 N 条决定"去筛 */
+  confirmedOn: (s: GroomerSession, date: string) => call<{ items: Booking[] }>(s, `/bookings?date=${encodeURIComponent(date)}`).then((x) => x.items),
   decide: (s: GroomerSession, id: string, decision: { status: "confirmed" | "declined"; reason?: string; alternatives?: string[] }) =>
     call<{ booking: Booking }>(s, `/bookings/${encodeURIComponent(id)}/decide`, { method: "POST", body: JSON.stringify({ ...decision, by: s.name }) }).then((x) => x.booking),
   conversation: (s: GroomerSession, id: string) => call<ConversationView>(s, `/conversations/${encodeURIComponent(id)}`),

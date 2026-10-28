@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { BookingDetail } from "@/components/BookingDetail";
 import { BookingList } from "@/components/BookingList";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useGroomer } from "@/lib/groomer-context";
 import { useLocale } from "@/lib/i18n";
 import type { Booking } from "@/lib/types";
@@ -18,7 +18,7 @@ export default function HistoryPage() {
 
 /** 已处理：最新的决定在最上面，只读 */
 function History() {
-  const { session, shop, signOut } = useGroomer();
+  const { session, shop, reportError } = useGroomer();
   const { t } = useLocale();
   const router = useRouter();
   const pathname = usePathname();
@@ -33,11 +33,12 @@ function History() {
     api
       .bookings(session, "decided")
       .then((x) => alive && setItems(x))
-      .catch((e) => (e instanceof ApiError && e.status === 401 ? signOut() : alive && setItems([])));
+      // 失败就留在"…"，横幅说明原因；空列表只能来自真正的空结果
+      .catch((e) => alive && reportError(e));
     return () => {
       alive = false;
     };
-  }, [session, signOut]);
+  }, [session, reportError]);
 
   return (
     <div className="inbox" data-view={items && items.length === 0 ? "empty" : selected ? "detail" : "list"}>

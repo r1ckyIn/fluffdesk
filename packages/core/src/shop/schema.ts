@@ -90,7 +90,35 @@ export function parseShopConfig(input: unknown): ShopConfig {
     const errors = [...Value.Errors(ShopConfig, withDefaults)].slice(0, 5).map((e) => `${e.instancePath || "/"}: ${e.message}`);
     throw new Error(`invalid shop config: ${errors.join("; ")}`);
   }
+  const problems = referenceProblems(withDefaults);
+  if (problems.length > 0) throw new Error(`invalid shop config: ${problems.slice(0, 5).join("; ")}`);
   return withDefaults;
+}
+
+/**
+ * schema 管不到的引用完整性：id 是 agent、价目表和历史预约之间的钥匙，重复的 id 会让 findService 悄悄取到错的那条，
+ * 价目指向不存在的体型档会让 quote 找不到价。美容师端编辑和导入器都走这里，所以放在 parse 里而不是表单里。
+ */
+function referenceProblems(shop: ShopConfig): string[] {
+  const out: string[] = [];
+  const tierIds = shop.sizeTiers.map((t) => t.id);
+  const serviceIds = shop.services.map((s) => s.id);
+  for (const id of duplicates(tierIds)) out.push(`/sizeTiers: duplicate id "${id}"`);
+  for (const id of duplicates(serviceIds)) out.push(`/services: duplicate id "${id}"`);
+  const tiers = new Set(tierIds);
+  shop.services.forEach((svc, i) => {
+    svc.prices.forEach((p, k) => {
+      if (!tiers.has(p.size)) out.push(`/services/${i}/prices/${k}/size: unknown size tier "${p.size}"`);
+    });
+  });
+  return out;
+}
+
+function duplicates(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const dup = new Set<string>();
+  for (const id of ids) (seen.has(id) ? dup : seen).add(id);
+  return [...dup];
 }
 
 export function findService(shop: ShopConfig, serviceId: string): Service | undefined {

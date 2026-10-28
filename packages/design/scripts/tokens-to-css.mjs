@@ -27,7 +27,9 @@ lines.push("}", "");
 const css = lines.join("\n");
 
 if (process.argv.includes("--check")) {
-  for (const out of outputs) {
+  // 只比对提交进仓库的那份；dist/ 被 gitignore，CI 里不存在，比它只会让每个 PR 都红
+  const committed = outputs.filter((out) => !out.includes(`${root}/dist/`) || existsSync(out));
+  for (const out of committed) {
     const current = existsSync(out) ? readFileSync(out, "utf8") : "";
     if (current !== css) {
       console.error(`${out} 和 project/tokens.json 不一致，跑 npm run build -w packages/design`);

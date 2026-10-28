@@ -36,7 +36,7 @@ function Inbox() {
       <section className="list-col" aria-label={t("inbox.title")}>
         <div className="list-head">
           <h1>{t("inbox.title")}</h1>
-          <span className="count num">{pending ? `${pending.length} ${t("inbox.count")}` : "…"}</span>
+          <span className="count num">{pending ? `${pending.length} ${t(pending.length === 1 ? "inbox.count1" : "inbox.count")}` : "…"}</span>
         </div>
         {pending && pending.length === 0 ? <p className="empty">{t("inbox.empty")}</p> : null}
         {pending && pending.length > 0 ? <BookingList items={pending} selectedId={selectedId} onSelect={select} shop={shop} /> : null}

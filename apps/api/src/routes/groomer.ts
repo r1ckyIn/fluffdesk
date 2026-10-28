@@ -21,10 +21,14 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
 
   routes.use("*", async (c, next) => {
     if (!token || token.length < 16) return c.json({ error: "groomer auth not configured" }, 503);
-    // 猜 token 也要受每 IP 限流，和聊天接口共用一个计数
-    if (!c.get("rt").limits.perIp.take(clientIp(c))) return c.json({ error: "too many requests" }, 429);
+    const { limits } = c.get("rt");
+    const ip = clientIp(c);
+    // 美容师端有自己的每 IP 预算，不和公网聊天共用：开一条预约就是十来个请求
+    if (!limits.groomerIp.take(ip)) return c.json({ error: "too many requests" }, 429);
     const provided = c.req.header("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
     if (!verifyTokenMatches(token, provided)) {
+      // 猜令牌单独数：失败次数到了就一直 429，对的令牌不受影响
+      if (!limits.groomerAuth.take(ip)) return c.json({ error: "too many requests" }, 429);
       c.header("www-authenticate", 'Bearer realm="groomer"');
       return c.json({ error: "unauthorized" }, 401);
     }
@@ -38,16 +42,21 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     await next();
   });
 
-  /** 队列和历史。?status=pending（默认）| decided | all，最多 200 条 */
+  /**
+   * 队列和历史。?status=pending（默认）| decided | all，最多 200 条。
+   * ?date=YYYY-MM-DD 是另一种视图：那天已确认的全部预约，给当天安排条用，不限条数（status 只能省略或为 confirmed）
+   */
   routes.get("/:shop/bookings", async (c) => {
-    const statuses = STATUS_VIEWS[c.req.query("status") ?? "pending"];
-    if (!statuses) return c.json({ error: "status must be pending|decided|all" }, 400);
-    const items = await c.get("rt").bookings.listByStatus(c.req.param("shop"), statuses, 200);
-    return c.json({ items });
-  });
-
-  routes.get("/:shop/bookings/pending", async (c) => {
-    const items = await c.get("rt").bookings.listPending(c.req.param("shop"));
+    const date = c.req.query("date");
+    const view = c.req.query("status") ?? (date ? "confirmed" : "pending");
+    if (date !== undefined) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ error: "date must be YYYY-MM-DD" }, 400);
+      if (view !== "confirmed") return c.json({ error: "date only lists confirmed bookings" }, 400);
+      return c.json({ items: await c.get("rt").bookings.listConfirmedOn(c.req.param("shop"), date) });
+    }
+    // 普通对象查找会命中 constructor 这类原型键，所以先 hasOwn
+    if (!Object.hasOwn(STATUS_VIEWS, view)) return c.json({ error: "status must be pending|decided|all" }, 400);
+    const items = await c.get("rt").bookings.listByStatus(c.req.param("shop"), STATUS_VIEWS[view]!, 200);
     return c.json({ items });
   });
 
@@ -93,7 +102,8 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     return c.body(Buffer.from(img.data, "base64"), 200, {
       "content-type": img.mimeType,
       "content-disposition": "inline",
-      "cache-control": "private, max-age=3600",
+      // 客人照片不进任何缓存：共享平板上退出登录后不该还能从缓存里翻出来
+      "cache-control": "private, no-store",
     });
   });
 

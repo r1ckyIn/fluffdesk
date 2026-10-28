@@ -4,6 +4,7 @@ import { ToolRegistry, defineTool, type ToolContext } from "../src/tools/registr
 import { defaultTools, quoteTool, identifyPetTool, holdBookingTool } from "../src/tools/index.js";
 import { InMemoryBookingStore, InMemoryCalendar, bookingSlot } from "../src/booking/ports.js";
 import { parseDecision } from "../src/booking/decision.js";
+import { parseShopConfig } from "../src/shop/schema.js";
 import { transcript } from "../src/agent/transcript.js";
 import { newConversation } from "../src/agent/loop.js";
 import { demoShop, fauxGateway } from "./fixtures.js";
@@ -133,12 +134,12 @@ describe("美容师端的决定", () => {
     expect(() => parseDecision({ status: "cancelled", by: "g" })).toThrow(/status/);
     expect(() => parseDecision({ status: "confirmed", by: "  " })).toThrow(/by/);
     expect(parseDecision({ status: "declined", by: "g", alternatives: [] })).toEqual({ status: "declined", by: "g" });
-    expect(parseDecision({ status: "declined", by: " g ", reason: "x".repeat(600), alternatives: ["2026-11-04T11:00", "2026-11-04T10:00"] }))
-      .toEqual({ status: "declined", by: "g", reason: "x".repeat(500), alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
+    expect(parseDecision({ status: "declined", by: ` ${"g".repeat(100)} `, reason: "x".repeat(600), alternatives: ["2026-11-04T11:00", "2026-11-04T10:00"] }))
+      .toEqual({ status: "declined", by: "g".repeat(80), reason: "x".repeat(500), alternatives: ["2026-11-04T10:00", "2026-11-04T11:00"] });
   });
   it("the in-memory store keeps alternatives only for a decline, like the Postgres one", async () => {
     const store = new InMemoryBookingStore();
-    const mk = () => store.createPending({ shopSlug: "s", conversationId: "c", customer: { name: "A", contact: "0", channel: "web" }, pet: { species: "dog" }, serviceId: "x", durationMin: 60, start: `2026-11-03T1${store ? 0 : 0}:00` });
+    const mk = () => store.createPending({ shopSlug: "s", conversationId: "c", customer: { name: "A", contact: "0", channel: "web" }, pet: { species: "dog" }, serviceId: "x", durationMin: 60, start: "2026-11-03T10:00" });
     const a = await mk();
     const confirmed = await store.decide(a.id, { status: "confirmed", by: "g", alternatives: ["2026-11-04T10:00"] });
     expect(confirmed.alternatives).toBeUndefined();
@@ -149,11 +150,38 @@ describe("美容师端的决定", () => {
     await store.decide(b.id, { status: "confirmed", by: "g" });
     const calendar = new InMemoryCalendar(
       () => ({ open: "09:00", close: "13:00" }),
-      async (date) => (await store.listByStatus("s", ["confirmed"])).filter((x) => x.start.startsWith(date)).map(bookingSlot),
+      async (date) => (await store.listConfirmedOn("s", date)).map(bookingSlot),
     );
     expect(bookingSlot(b)).toEqual({ start: "2026-11-03T10:00", end: "2026-11-03T11:30" });
     expect((await calendar.freeSlots("2026-11-03", 60)).map((s) => s.start)).toEqual(["2026-11-03T09:00", "2026-11-03T12:00"]);
     expect((await calendar.freeSlots("2026-11-04", 60)).map((s) => s.start)).toHaveLength(4);
+  });
+});
+
+describe("按日期查已确认的预约", () => {
+  it("listConfirmedOn returns that day's confirmed bookings in start order and nothing else", async () => {
+    const store = new InMemoryBookingStore();
+    const mk = (conversationId: string, start: string) => store.createPending({ shopSlug: "s", conversationId, customer: { name: "A", contact: "0", channel: "web" }, pet: { species: "dog" }, serviceId: "x", durationMin: 60, start });
+    const late = await mk("c1", "2026-11-03T14:00");
+    const early = await mk("c2", "2026-11-03T09:00");
+    const other = await mk("c3", "2026-11-04T09:00");
+    const declined = await mk("c4", "2026-11-03T10:00");
+    await mk("c5", "2026-11-03T11:00"); // pending
+    for (const b of [late, early, other]) await store.decide(b.id, { status: "confirmed", by: "g" });
+    await store.decide(declined.id, { status: "declined", by: "g" });
+    expect((await store.listConfirmedOn("s", "2026-11-03")).map((b) => b.id)).toEqual([early.id, late.id]);
+    expect(await store.listConfirmedOn("other-shop", "2026-11-03")).toEqual([]);
+  });
+});
+
+describe("店铺资料的引用完整性", () => {
+  const base = JSON.parse(JSON.stringify(demoShop)) as typeof demoShop;
+  it("rejects duplicate service ids, duplicate tier ids and prices that point at a missing tier", () => {
+    expect(() => parseShopConfig({ ...base, services: [...base.services, { ...base.services[0] }] })).toThrow(/duplicate id/);
+    expect(() => parseShopConfig({ ...base, sizeTiers: [...base.sizeTiers, { ...base.sizeTiers[0] }] })).toThrow(/duplicate id/);
+    const dangling = { ...base, services: [{ ...base.services[0]!, prices: [{ ...base.services[0]!.prices[0]!, size: "giant" }] }] };
+    expect(() => parseShopConfig(dangling)).toThrow(/unknown size tier "giant"/);
+    expect(parseShopConfig(base).slug).toBe(base.slug); // 原样的 demo 店通过
   });
 });
 
