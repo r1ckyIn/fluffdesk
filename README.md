@@ -85,6 +85,8 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp Cloud API：同上
 
 ### 美容师端（PWA）
+- [ ] POST corrections：conversationId 超过 200 字应该 400 而不是截断（截断会存成不存在的 id）；traceId、original、corrected 也该有大小上限，在一处集中校验；补超长 conversationId 的路由用例（chore/taste-skill 第 8 轮审查）
+- [ ] BookingDetail 的 key 应放在两个调用点的组件上而不是内部 article，这样换预约时整套状态自然丢弃，三个重置 effect 和过期回调的 ref 守护都能删掉；onDone 应直接用 api.correct 返回的 Correction，不再手拼乐观条目（chore/taste-skill 第 8 轮审查）
 - [ ] 布局暴露一个"401 就退出、其他不管"的 helper，历史页和详情页的三处 `if (e instanceof ApiError && e.status === 401) reportError(e)` 收成一处；历史页现在仍是内联 + 横幅双报（chore/taste-skill 第 7 轮审查）
 - [ ] 详情页 confirmedOn 的 effect 依赖里有 booking.id，同一天两条预约来回切会重拉当天安排（chore/taste-skill 第 7 轮审查）
 - [ ] ShopForm 的"行来自已保存资料"标记现在是和 draft 并行的布尔数组，四个 handler 手工对齐；改成标记跟着行走（行上带 `_saved`，normalise 时剥掉）（chore/taste-skill 第 2 轮审查）
