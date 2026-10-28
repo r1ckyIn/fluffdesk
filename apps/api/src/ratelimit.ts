@@ -3,6 +3,7 @@
  */
 export class RateLimiter {
   private readonly hits = new Map<string, { count: number; resetAt: number }>();
+  private lastSweepAt = 0;
 
   constructor(private readonly limit: number, private readonly windowMs: number) {}
 
@@ -11,7 +12,11 @@ export class RateLimiter {
     const cur = this.hits.get(key);
     if (!cur || cur.resetAt <= now) {
       this.hits.set(key, { count: 1, resetAt: now + this.windowMs });
-      if (this.hits.size > 50_000) this.sweep(now);
+      // 清扫是 O(n)，一个窗口最多扫一次，不然一波新 key 会让每个请求都扫一遍整张表
+      if (this.hits.size > 50_000 && now - this.lastSweepAt >= this.windowMs) {
+        this.lastSweepAt = now;
+        this.sweep(now);
+      }
       return true;
     }
     if (cur.count >= this.limit) return false;

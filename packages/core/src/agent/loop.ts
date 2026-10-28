@@ -79,8 +79,8 @@ export async function runTurn(deps: AgentDeps, conv: Conversation, input: UserIn
     content.push({ type: "image", data: img.data, mimeType: img.mimeType });
   }
   if (content.length === 0) content.push({ type: "text", text: "[empty message]" });
-  pruneOldImages(conv.messages, LIMITS.imageTurnsKept);
   conv.messages.push({ role: "user", content, timestamp: Date.now() });
+  pruneOldImages(conv.messages, LIMITS.imageTurnsKept);
 
   const toolCtx: ToolContext = {
     ...deps.toolContext,

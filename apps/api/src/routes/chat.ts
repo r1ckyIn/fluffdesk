@@ -1,10 +1,15 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { IMAGE_MIME_ALLOWLIST, LIMITS } from "@fluffdesk/core";
 import type { AppEnv } from "../app.js";
 import { handleInbound } from "../channels/base.js";
 
 /** 托管聊天页和嵌入小窗共用的接口。前端带 sessionId，服务端按店铺+渠道+session 找会话 */
 export const chatRoutes = new Hono<AppEnv>();
+
+/** Fly 会填 fly-client-ip；本地或别的反代用 x-forwarded-for 的第一跳 */
+export function clientIp(c: Context<AppEnv>): string {
+  return c.req.header("fly-client-ip") ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+}
 
 const SESSION_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
@@ -17,8 +22,7 @@ interface ChatBody {
 
 chatRoutes.post("/:shop", async (c) => {
   const rt = c.get("rt");
-  const ip = c.req.header("fly-client-ip") ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  if (!rt.limits.perIp.take(ip)) return c.json({ error: "too many requests" }, 429);
+  if (!rt.limits.perIp.take(clientIp(c))) return c.json({ error: "too many requests" }, 429);
 
   let body: ChatBody;
   try {

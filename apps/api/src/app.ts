@@ -32,7 +32,7 @@ export function createApp(rt: Runtime = createRuntime(), env: Record<string, str
   });
   app.get("/health", (c) => c.json({ ok: true, shops: rt.shops.list().map((s) => s.slug) }));
   app.route("/chat", chatRoutes);
-  app.route("/groomer", groomerRoutes);
-  app.route("/webhooks", webhookRoutes);
+  app.route("/groomer", groomerRoutes(env));
+  app.route("/webhooks", webhookRoutes(env));
   return app;
 }

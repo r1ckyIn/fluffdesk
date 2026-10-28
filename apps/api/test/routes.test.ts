@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { createGateway, defaultTools, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, Tracer, type Conversation } from "@fluffdesk/core";
 import { createApp } from "../src/app.js";
@@ -41,28 +41,41 @@ function testRuntime(): Runtime {
 const json = (body: unknown, headers: Record<string, string> = {}) =>
   ({ method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) }) as RequestInit;
 
-describe("groomer routes", () => {
-  const saved = process.env.GROOMER_API_TOKEN;
-  afterEach(() => { process.env.GROOMER_API_TOKEN = saved; });
+const TOKEN = "0123456789abcdef0123";
+const auth = { authorization: `Bearer ${TOKEN}` };
 
+describe("groomer routes", () => {
   it("fail closed when no token is configured", async () => {
-    delete process.env.GROOMER_API_TOKEN;
     const app = createApp(testRuntime(), {});
     const r = await app.request("/groomer/s1/bookings/pending");
     expect(r.status).toBe(503);
   });
   it("rejects missing or wrong bearer token", async () => {
-    process.env.GROOMER_API_TOKEN = "0123456789abcdef0123";
-    const app = createApp(testRuntime(), {});
+    const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN });
     expect((await app.request("/groomer/s1/bookings/pending")).status).toBe(401);
     expect((await app.request("/groomer/s1/bookings/pending", { headers: { authorization: "Bearer nope" } })).status).toBe(401);
-    expect((await app.request("/groomer/s1/bookings/pending", { headers: { authorization: "Bearer 0123456789abcdef0123" } })).status).toBe(200);
+    expect((await app.request("/groomer/s1/bookings/pending", { headers: auth })).status).toBe(200);
+  });
+  it("rate limits token guessing per ip", async () => {
+    const app = createApp(testRuntime(), { GROOMER_API_TOKEN: TOKEN });
+    const guess = () => app.request("/groomer/s1/bookings/pending", { headers: { authorization: "Bearer nope", "x-forwarded-for": "9.9.9.9" } });
+    for (let i = 0; i < 5; i++) expect((await guess()).status).toBe(401);
+    expect((await guess()).status).toBe(429);
+  });
+  it("binds bookings to the shop in the path and 404s unknown shops", async () => {
+    const rt = testRuntime();
+    const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
+    const b = await rt.bookings.createPending({ shopSlug: "other-shop", conversationId: "c", channel: "web", customerName: "A", contact: "0400", serviceId: "bath", durationMin: 60, start: "2026-11-03T10:00", pet: { species: "dog" } } as never);
+    const decide = (shop: string) => app.request(`/groomer/${shop}/bookings/${b.id}/decide`, json({ status: "confirmed", by: "g" }, auth));
+    expect((await decide("s1")).status).toBe(404);
+    expect((await rt.bookings.get(b.id))?.status).toBe("pending");
+    expect((await decide("other-shop")).status).toBe(404); // 这家店不在运行时里
+    expect((await app.request("/groomer/nope/bookings/pending", { headers: auth })).status).toBe(404);
   });
   it("corrections are built from named fields, not the raw body", async () => {
-    process.env.GROOMER_API_TOKEN = "0123456789abcdef0123";
     const rt = testRuntime();
-    const app = createApp(rt, {});
-    const r = await app.request("/groomer/s1/corrections", json({ kind: "quote", conversationId: "c", by: "g", original: 1, corrected: 2, shopSlug: "other", id: "forged", createdAt: "1999" }, { authorization: "Bearer 0123456789abcdef0123" }));
+    const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
+    const r = await app.request("/groomer/s1/corrections", json({ kind: "quote", conversationId: "c", by: "g", original: 1, corrected: 2, shopSlug: "other", id: "forged", createdAt: "1999" }, auth));
     expect(r.status).toBe(201);
     expect(rt.corrections[0]).toMatchObject({ shopSlug: "s1", kind: "quote" });
     expect(rt.corrections[0]?.id).not.toBe("forged");
@@ -107,13 +120,14 @@ describe("webhook handshake", () => {
     expect(verifyTokenMatches("abc", "abc")).toBe(true);
     expect(verifyTokenMatches("abc", "abd")).toBe(false);
   });
-  it("rejects the handshake without a configured token", async () => {
-    const saved = process.env.WHATSAPP_VERIFY_TOKEN;
-    delete process.env.WHATSAPP_VERIFY_TOKEN;
-    const app = createApp(testRuntime(), {});
-    const r = await app.request("/webhooks/whatsapp?hub.mode=subscribe&hub.challenge=123");
-    expect(r.status).toBe(403);
-    process.env.WHATSAPP_VERIFY_TOKEN = saved;
+  it("rejects the handshake without a configured token, answers it with one", async () => {
+    const bare = createApp(testRuntime(), {});
+    expect((await bare.request("/webhooks/whatsapp?hub.mode=subscribe&hub.challenge=123&hub.verify_token=undefined")).status).toBe(403);
+    const configured = createApp(testRuntime(), { WHATSAPP_VERIFY_TOKEN: "verify-me" });
+    expect((await configured.request("/webhooks/whatsapp?hub.mode=subscribe&hub.challenge=123&hub.verify_token=wrong")).status).toBe(403);
+    const ok = await configured.request("/webhooks/whatsapp?hub.mode=subscribe&hub.challenge=123&hub.verify_token=verify-me");
+    expect(ok.status).toBe(200);
+    expect(await ok.text()).toBe("123");
   });
 });
 

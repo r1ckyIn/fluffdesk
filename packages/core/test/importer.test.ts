@@ -51,6 +51,13 @@ describe("verifyDraft price evidence", () => {
     ], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text });
     expect(d.partial.services).toBeUndefined();
   });
+  it("still accepts a service whose name appears earlier on the page without prices", () => {
+    const text = "Services: Full groom small (under 10kg) · Wash & tidy · Nail trim. " + "About us. ".repeat(40) + "Prices: Full groom small (under 10kg) $90 - $120";
+    const d = verifyDraft({ services: [
+      { id: "full-groom", name: { en: "Full groom", zh: "全套" }, prices: [{ size: "small", min: 90, max: 120 }], evidence: "Full groom small (under 10kg) $90 - $120" },
+    ], unsure: [] }, { source: { type: "website", fetchedAt: "" }, text });
+    expect(d.partial.services?.map((s) => s.id)).toEqual(["full-groom"]);
+  });
   it("does not let 12 pass as 120 or 120 pass as 1200", () => {
     const d = verifyDraft({ services: [
       { id: "a", name: { en: "A", zh: "A" }, prices: [{ size: "all", min: 12, max: 12 }], evidence: "Full groom $120" },

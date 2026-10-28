@@ -5,6 +5,7 @@ COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
 COPY packages/eval/package.json packages/eval/
 COPY apps/api/package.json apps/api/
+COPY apps/web/package.json apps/web/
 RUN npm ci --workspace apps/api --include-workspace-root --ignore-scripts
 COPY tsconfig.base.json ./
 COPY packages ./packages
@@ -17,7 +18,9 @@ ENV NODE_ENV=production
 COPY --from=build /app/package.json /app/package-lock.json ./
 COPY --from=build /app/packages/core/package.json packages/core/
 COPY --from=build /app/packages/db/package.json packages/db/
+COPY --from=build /app/packages/eval/package.json packages/eval/
 COPY --from=build /app/apps/api/package.json apps/api/
+COPY --from=build /app/apps/web/package.json apps/web/
 RUN npm ci --workspace apps/api --include-workspace-root --omit=dev --ignore-scripts && npm cache clean --force
 COPY --from=build /app/packages/core/dist packages/core/dist
 COPY --from=build /app/packages/db/dist packages/db/dist

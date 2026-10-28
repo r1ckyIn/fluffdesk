@@ -108,6 +108,17 @@ describe("会话上限", () => {
     expect((messages[0]!.content as Array<{ type: string }>)[0]!.type).toBe("text");
     expect((messages[2]!.content as Array<{ type: string }>)[0]!.type).toBe("image");
   });
+  it("after two image turns only the current turn's image is still in history", async () => {
+    const { faux, gateway } = fauxGateway();
+    faux.setResponses([fauxAssistantMessage([fauxText("ok")]), fauxAssistantMessage([fauxText("ok")])]);
+    const d = { ...deps(), gateway };
+    const conv = newConversation({ id: "c", shopSlug: demoShop.slug, channel: "web", locale: "en" });
+    await runTurn(d, conv, { text: "first", images: [{ data: "a", mimeType: "image/png" }] });
+    await runTurn(d, conv, { text: "second", images: [{ data: "b", mimeType: "image/png" }] });
+    const imageTurns = conv.messages.filter((m) => m.role === "user" && typeof m.content !== "string" && m.content.some((c) => c.type === "image"));
+    expect(imageTurns).toHaveLength(LIMITS.imageTurnsKept);
+    expect(conv.images.size).toBe(2); // 图本身还在会话里，identify_pet 按 id 还能取
+  });
 });
 
 describe("预约刷量", () => {

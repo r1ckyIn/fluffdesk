@@ -151,8 +151,8 @@ export function verifyDraft(draft: Draft, input: ExtractInput, notes: string[] =
       // 不能在整页里找数字：电话号码里的 55 会让一个编出来的 $55 通过；
       // 也不能只核 evidence 字符串本身：模型可以抄 40 个字原文再接一个编的价格。
       // 只有图片时没有原文可核，evidence 是模型自己写的，核了也没意义，靠置信度封顶表达不确定
-      const span = haystack === undefined ? undefined : locateEvidence(haystack, s.evidence);
-      const backed = !haystack || (span !== undefined && s.prices.every((p) => hasNumber(span, p.min) && hasNumber(span, p.max)));
+      const spans = haystack === undefined ? [] : locateEvidence(haystack, s.evidence);
+      const backed = !haystack || spans.some((span) => s.prices.every((p) => hasNumber(span, p.min) && hasNumber(span, p.max)));
       if (!backed) {
         notes.push(`service ${s.id}: prices not backed by evidence in source, dropped (evidence: "${s.evidence.slice(0, 80)}")`);
         continue;
@@ -182,20 +182,23 @@ export function normalize(s: string): string {
 }
 
 function containsLoosely(haystack: string, needle: string): boolean {
-  return locateEvidence(haystack, needle) !== undefined;
+  return locateEvidence(haystack, needle).length > 0;
 }
 
 /**
- * 用 evidence 在原文里定位，返回它对应的那一段原文。
- * 片段长了允许模型截断或换行，所以按前 40 个字符定位，再往后多取一截兜住 evidence 的余下部分
+ * 用 evidence 在原文里定位，返回它可能对应的每一段原文。
+ * 片段长了允许模型截断或换行，所以按前 40 个字符定位，再往后多取一截兜住 evidence 的余下部分。
+ * 同一个前缀在页面上常出现多次（导航菜单、标题、再到价目表），只看第一处会把真服务漏掉，所以全部返回
  */
-function locateEvidence(haystack: string, needle: string): string | undefined {
+function locateEvidence(haystack: string, needle: string): string[] {
   const n = normalize(needle);
-  if (!n) return undefined;
+  if (!n) return [];
   const prefix = n.length <= 12 ? n : n.slice(0, 40);
-  const idx = haystack.indexOf(prefix);
-  if (idx === -1) return undefined;
-  return haystack.slice(idx, idx + Math.max(n.length, prefix.length) + 80);
+  const spans: string[] = [];
+  for (let idx = haystack.indexOf(prefix); idx !== -1 && spans.length < 20; idx = haystack.indexOf(prefix, idx + 1)) {
+    spans.push(haystack.slice(idx, idx + Math.max(n.length, prefix.length) + 80));
+  }
+  return spans;
 }
 
 /** 整数匹配：120 不能靠 "1200" 或 "$12" 过；120.00 算 */

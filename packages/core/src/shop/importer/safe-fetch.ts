@@ -81,13 +81,17 @@ export async function safeFetchHtml(raw: string, opts: SafeFetchOptions = {}): P
       redirect: "manual",
     });
     if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel().catch(() => {});
       const loc = res.headers.get("location");
       if (!loc) throw new UnsafeUrlError(current, `redirect without location`);
       current = new URL(loc, u).toString();
       continue;
     }
-    if (!res.ok) throw new Error(`http ${res.status} for ${current}`);
-    if (!(res.headers.get("content-type") ?? "").includes("html")) throw new Error(`not html: ${current}`);
+    if (!res.ok || !(res.headers.get("content-type") ?? "").includes("html")) {
+      // 不读的响应体要关掉，不然 undici 的连接会挂到 GC 才回收
+      await res.body?.cancel().catch(() => {});
+      throw new Error(res.ok ? `not html: ${current}` : `http ${res.status} for ${current}`);
+    }
     return { html: await readCapped(res, maxBytes), url: u.toString() };
   }
   throw new UnsafeUrlError(raw, `more than ${maxRedirects} redirects`);

@@ -26,7 +26,7 @@
 - 改任何代码：`npm test` 必过；改了核心逻辑再跑 `npm run test:mutate`，逃掉一条就不算完
 - 改抽取或合并逻辑：用 Fenny & Jacks 重跑 `npm run import` 当回归
 - 改提示词、工具定义或换模型：`npm run eval -- quote --record` 重新录制，再 `--replay` 确认 CI 能过；回放指纹对不上就是要重录，不要改指纹
-- 新护栏规矩先写契约测试（`packages/core/test/guardrails.test.ts`），再写实现
+- 新护栏规矩先写契约测试再写实现：业务规矩放 `packages/core/test/guardrails.test.ts`，公网输入的上限和 SSRF 放 `packages/core/test/security.test.ts`，HTTP 边界放 `apps/api/test/routes.test.ts`
 - 不写断言实现常数的测试，不 mock 被测对象，CI 里不调真模型
 
 ## PR 流程
