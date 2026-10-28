@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
-import type { Conversation, ConversationKey, ConversationStore } from "@fluffdesk/core";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { pruneOldImages, type Conversation, type ConversationKey, type ConversationStore } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { conversationImages, conversations } from "../schema.js";
 
@@ -37,6 +37,34 @@ export class PgConversationStore implements ConversationStore {
     });
     for (const f of fresh) known.add(f.imageId);
     this.persistedImages.set(conv, known);
+  }
+
+  /**
+   * 清掉闲置会话的图片：images 表的行删掉，messages 里还内嵌的图换成占位文字。
+   * 文字历史保留。一次最多处理 100 个会话，返回处理了几个。
+   */
+  async expireIdleImages(idleBefore: Date, batch = 100): Promise<number> {
+    const stale = await this.db
+      .select({ id: conversations.id, messages: conversations.messages })
+      .from(conversations)
+      .where(
+        and(
+          lt(conversations.updatedAt, idleBefore),
+          sql`(exists (select 1 from ${conversationImages} ci where ci.conversation_id = ${conversations.id})
+               or ${conversations.messages} @> '[{"content":[{"type":"image"}]}]'::jsonb)`,
+        ),
+      )
+      .limit(batch);
+    if (stale.length === 0) return 0;
+    await this.db.transaction(async (tx) => {
+      await tx.delete(conversationImages).where(inArray(conversationImages.conversationId, stale.map((c) => c.id)));
+      for (const c of stale) {
+        pruneOldImages(c.messages, 0);
+        // 不动 updated_at：这不是客人的活动
+        await tx.update(conversations).set({ messages: c.messages }).where(eq(conversations.id, c.id));
+      }
+    });
+    return stale.length;
   }
 
   private async load(key: ConversationKey): Promise<Conversation | undefined> {

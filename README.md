@@ -84,7 +84,11 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 ### 数据与部署
 - [x] runtime.ts 按 DATABASE_URL 切换到 @fluffdesk/db（Neon 悉尼区），迁移文件进仓库，部署前 release_command 跑迁移
 - [x] 店铺、对话（含图片）、预约、轨迹、修正落库；decide 原子更新；同一会话并发轮次串行
+- [x] 闲置 24 小时的会话清掉图片（表里的行和消息里内嵌的），文字历史留着
 - [ ] 改 schema 后 `npm run db:generate -w packages/db` 重新生成迁移并提交，不手改 migrations/
+- [ ] 图片按需加载：现在每轮把会话的全部图片读进内存给 identify_pet 用，图多了要改成只读 id、工具用到再取
+- [ ] 会话文字历史的保留期限（产品决定，和 eval 集的需要一起定）
+- [ ] Neon：建 dev 分支给本地用，main 设受保护；API 用只有 DML 的角色，owner 角色只跑迁移
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比

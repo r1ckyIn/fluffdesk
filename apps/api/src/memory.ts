@@ -2,8 +2,9 @@ import { conversationKey, newConversation, type Conversation, type ConversationK
 import { BoundedStore } from "./ratelimit.js";
 
 /**
- * 没配 DATABASE_URL 时的内存实现：本地开发、测试、Docker 冒烟用，重启全丢。
- * 行为和 @fluffdesk/db 的实现一致，只是容量有上限，因为公网来的 key 不能无限收。
+ * 没配 DATABASE_URL 时的内存实现：本地开发和测试用，重启全丢（镜像里 NODE_ENV=production，不会走到这里）。
+ * 容量有上限，因为公网来的 key 不能无限收。和 Postgres 版的差别：这里拿到的是存着的那个对象，
+ * 一轮中途抛错改到一半的消息也会留在里面；Postgres 版只在 save 时落库。
  */
 export class MemoryConversationStore implements ConversationStore {
   constructor(private readonly store = new BoundedStore<Conversation>(5000, 24 * 60 * 60 * 1000)) {}

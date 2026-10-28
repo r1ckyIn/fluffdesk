@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import { parseShopConfig, Tracer, ATTR, type Conversation } from "@fluffdesk/core";
 import * as schema from "../src/schema.js";
 import type { Db } from "../src/client.js";
@@ -64,6 +64,15 @@ describe("PgShopRepo", () => {
     await shops.upsert({ ...shopConfig("draft"), name: "Approved" }, { approved: true });
     expect((await shops.get("draft"))?.name).toBe("Approved");
   });
+  it("a draft never overwrites an approved shop, an approved write always does", async () => {
+    await shops.upsert({ ...shopConfig("live"), name: "Live" }, { approved: true });
+    const draft = await shops.upsert({ ...shopConfig("live"), name: "Scraped draft" }, { approved: false });
+    expect(draft.written).toBe(false);
+    expect((await shops.get("live"))?.name).toBe("Live");
+    const again = await shops.upsert({ ...shopConfig("live"), name: "Edited by groomer" }, { approved: true });
+    expect(again.written).toBe(true);
+    expect((await shops.get("live"))?.name).toBe("Edited by groomer");
+  });
   it("rejects a config that fails the core schema", async () => {
     await expect(shops.upsert({ slug: "bad" }, { approved: true })).rejects.toThrow();
     expect(await shops.get("bad")).toBeUndefined();
@@ -101,6 +110,29 @@ describe("PgConversationStore", () => {
     expect(fresh.images.get("img_2")).toEqual({ data: "BBBB", mimeType: "image/jpeg" });
     const [row] = await db.select({ n: count() }).from(schema.conversationImages).where(eq(schema.conversationImages.conversationId, conv.id));
     expect(row?.n).toBe(2);
+  });
+  it("expires images of idle conversations but keeps the text history", async () => {
+    const idleKey = { shopSlug: "s1", channel: "web", externalId: "idle" };
+    const idle = await conversations.findOrCreate(idleKey, "en");
+    idle.messages.push({ role: "user", content: [{ type: "text", text: "[image attached, imageId=img_1]" }, { type: "image", data: "AAAA", mimeType: "image/png" }], timestamp: 1 });
+    idle.images.set("img_1", { data: "AAAA", mimeType: "image/png" });
+    await conversations.save(idle);
+    const activeKey = { shopSlug: "s1", channel: "web", externalId: "active" };
+    const active = await conversations.findOrCreate(activeKey, "en");
+    active.images.set("img_1", { data: "BBBB", mimeType: "image/png" });
+    await conversations.save(active);
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await db.update(schema.conversations).set({ updatedAt: new Date(dayAgo.getTime() - 1000) }).where(eq(schema.conversations.id, idle.id));
+
+    expect(await conversations.expireIdleImages(dayAgo)).toBe(1);
+    const reloadedIdle = await new PgConversationStore(db).findOrCreate(idleKey, "en");
+    expect(reloadedIdle.images.size).toBe(0);
+    expect(reloadedIdle.messages).toHaveLength(1);
+    expect(JSON.stringify(reloadedIdle.messages)).not.toContain('"type":"image"');
+    expect(JSON.stringify(reloadedIdle.messages)).toContain("imageId=img_1");
+    const reloadedActive = await new PgConversationStore(db).findOrCreate(activeKey, "en");
+    expect(reloadedActive.images.size).toBe(1);
+    expect(await conversations.expireIdleImages(dayAgo)).toBe(0); // 第二次没有可清的
   });
 });
 

@@ -111,6 +111,15 @@ describe("chat route", () => {
     expect((await other(1)).status).toBe(200);
     expect((await other(2)).status).toBe(429); // 同 ip 第 6 次超过每 ip 5 次
   });
+  it("strips NUL bytes before the text reaches the model or the database", async () => {
+    const rt = testRuntime();
+    const app = createApp(rt, {});
+    const r = await app.request("/chat/s1", json({ sessionId: "session-nul1", text: "hi\u0000there" }));
+    expect(r.status).toBe(200);
+    const conv = await rt.conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "session-nul1" }, "en");
+    expect(JSON.stringify(conv.messages)).not.toContain("\\u0000");
+    expect(JSON.stringify(conv.messages)).toContain("hithere");
+  });
   it("returns 413 for oversized bodies and a generic 500 on internal errors", async () => {
     const huge = { sessionId: "session-cccc", text: "hi", images: [{ data: "A".repeat(8 * 1024 * 1024), mimeType: "image/png" }] };
     expect((await app.request("/chat/s1", json(huge))).status).toBe(413);
@@ -132,7 +141,7 @@ describe("inbound handling", () => {
         saved.set(c.id, c);
       },
     };
-    const msg = (text: string) => ({ shopSlug: "s1", channel: "web", externalId: "sess-race", input: { text } });
+    const msg = (text: string) => ({ shop, channel: "web", externalId: "sess-race", input: { text } });
     await Promise.all([handleInbound(rt, msg("first")), handleInbound(rt, msg("second"))]);
     const conv = saved.get("s1:web:sess-race");
     expect(conv?.messages).toHaveLength(4); // 两轮各一条客人消息和一条回复

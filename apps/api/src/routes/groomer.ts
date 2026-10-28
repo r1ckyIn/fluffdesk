@@ -29,7 +29,9 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
   });
 
   routes.use("/:shop/*", async (c, next) => {
-    if (!(await c.get("rt").shops.get(c.req.param("shop")))) return c.json({ error: "not found" }, 404);
+    const shop = await c.get("rt").shops.get(c.req.param("shop"));
+    if (!shop) return c.json({ error: "not found" }, 404);
+    c.set("shop", shop);
     await next();
   });
 
@@ -81,7 +83,7 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     return c.json({ correction }, 201);
   });
 
-  routes.get("/:shop/shop", async (c) => c.json({ shop: await c.get("rt").shops.get(c.req.param("shop")) }));
+  routes.get("/:shop/shop", (c) => c.json({ shop: c.get("shop") }));
 
   return routes;
 }

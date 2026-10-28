@@ -33,7 +33,8 @@ chatRoutes.post("/:shop", async (c) => {
   if (typeof body.sessionId !== "string" || !SESSION_ID.test(body.sessionId)) return c.json({ error: "sessionId must be 8-64 chars [A-Za-z0-9_-]" }, 400);
   if (!rt.limits.perSession.take(body.sessionId)) return c.json({ error: "too many requests" }, 429);
 
-  const text = typeof body.text === "string" ? body.text.trim() : "";
+  // jsonb 存不了 \u0000，到了存会话那步才炸的话模型已经调过了
+  const text = typeof body.text === "string" ? body.text.replace(/\u0000/g, "").trim() : "";
   if (text.length > LIMITS.textChars) return c.json({ error: `text must be at most ${LIMITS.textChars} chars` }, 400);
   const images = validateImages(body.images);
   if (images === "invalid") return c.json({ error: `images: at most ${LIMITS.imagesPerTurn}, types ${[...IMAGE_MIME_ALLOWLIST].join("/")}, base64 <= ${LIMITS.imageBase64Bytes} bytes` }, 400);
@@ -43,7 +44,7 @@ chatRoutes.post("/:shop", async (c) => {
   const shop = await rt.shops.get(c.req.param("shop"));
   if (!shop) return c.json({ error: "unknown shop" }, 404);
 
-  const result = await handleInbound(rt, { shopSlug: shop.slug, channel, externalId: body.sessionId, input: { text: text || undefined, images } });
+  const result = await handleInbound(rt, { shop, channel, externalId: body.sessionId, input: { text: text || undefined, images } });
   return c.json({ reply: result.reply, stop: result.stop, traceId: result.traceId });
 });
 

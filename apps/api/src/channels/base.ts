@@ -1,4 +1,4 @@
-import { conversationKey, runTurn, type TurnResult, type UserInput } from "@fluffdesk/core";
+import { conversationKey, runTurn, type ShopConfig, type TurnResult, type UserInput } from "@fluffdesk/core";
 import type { Runtime } from "../runtime.js";
 import { withSessionLock } from "../session-lock.js";
 
@@ -7,7 +7,8 @@ import { withSessionLock } from "../session-lock.js";
  * 渠道适配层只做两件事：把渠道消息翻译成 UserInput，把 reply 送回渠道。
  */
 export interface InboundMessage {
-  shopSlug: string;
+  /** 路由层已经查过并确认存在的店，这里不再查一次 */
+  shop: ShopConfig;
   channel: "web" | "embed" | "instagram" | "whatsapp" | string;
   /** 渠道侧会话标识 */
   externalId: string;
@@ -16,9 +17,9 @@ export interface InboundMessage {
 }
 
 export async function handleInbound(rt: Runtime, msg: InboundMessage): Promise<TurnResult> {
-  const shop = await rt.shops.get(msg.shopSlug);
-  if (!shop) throw new Error(`unknown shop ${msg.shopSlug}`);
+  const { shop } = msg;
   const key = { shopSlug: shop.slug, channel: msg.channel, externalId: msg.externalId };
+  // runTurn 抛出来（模型角色没配、工具上下文坏了）就不 save：半截轮次不落库，下一条消息从上一轮完整状态开始
   return withSessionLock(conversationKey(key), async () => {
     const conv = await rt.conversations.findOrCreate(key, msg.locale ?? detectLocale(msg.input.text));
     const result = await runTurn(

@@ -21,8 +21,8 @@ const db = createDb();
 const repo = new PgShopRepo(db);
 try {
   for (const entry of entries) {
-    const cfg = await repo.upsert(entry, { approved: true });
-    console.log(`upserted ${cfg.slug} (${cfg.services.length} services)`);
+    const { config } = await repo.upsert(entry, { approved: true });
+    console.log(`upserted ${config.slug} (${config.services.length} services)`);
   }
 } finally {
   await db.$client.end();
