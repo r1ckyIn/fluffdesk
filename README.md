@@ -19,7 +19,9 @@ cp .env.example .env     # 填 key
 npm install
 npm run typecheck
 npm test                 # 离线，用 faux provider，不花钱
-npm run dev:api          # http://localhost:8787/health
+npm run db:migrate       # 把 packages/db/migrations 里没跑过的迁移跑到 DATABASE_URL（Neon）
+npm run db:seed          # 把 packages/eval/datasets/shops.json 的 demo 店 upsert 进 shops 表
+npm run dev:api          # http://localhost:8787/health；没配 DATABASE_URL 走内存存储（重启丢）
 npm run dev:web          # http://localhost:3000
 npm run eval -- quote    # 真模型跑 eval（花钱）
 npm run eval -- quote --replay   # 按录制回放，不花钱，CI 用
@@ -79,9 +81,11 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] WhatsApp / Instagram POST webhook 验签（接渠道时一起做）
 - [ ] DNS rebinding：上线后在 Fly 出口网络层再拦一道内网地址
 
-### 数据与部署（下一个 session）
-- [ ] runtime.ts 从内存实现换成 @fluffdesk/db（Neon 悉尼区已建好，`npm run db:check -w packages/db` 能连上），跑一次 migration
-- [ ] 对话、预约、轨迹、修正落库
+### 数据与部署
+- [x] runtime.ts 按 DATABASE_URL 切换到 @fluffdesk/db（Neon 悉尼区），迁移文件进仓库，部署前 release_command 跑迁移
+- [x] 店铺、对话（含图片）、预约、轨迹、修正落库；decide 原子更新；同一会话并发轮次串行
+- [ ] 改 schema 后 `npm run db:generate -w packages/db` 重新生成迁移并提交，不手改 migrations/
+- [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比
 

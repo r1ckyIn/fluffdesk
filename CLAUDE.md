@@ -7,7 +7,7 @@
 - 模型层用 pi-ai（`@earendil-works/pi-ai`）做多 provider 网关；agent 循环、工具和 eval 自己写，不用 agent 框架
 - 模型角色由环境变量指定（`FLUFF_CHAT_MODEL` 等），demo 阶段走 Claude API 额度，DeepSeek 做第二家和降级
 - 前端 Next.js，美容师端做成 PWA（Web Push 通知，邮件兜底）
-- 数据：Postgres（Neon 悉尼区，Drizzle）；部署 Vercel + Fly.io 悉尼区
+- 数据：Postgres（Neon 悉尼区，Drizzle）；部署 Vercel + Fly.io 悉尼区。存储实现在 `packages/db`，路由和渠道层只认 `packages/core` 里的端口接口（`ShopRepo`、`ConversationStore`、`BookingStore`、`CorrectionStore`）；没配 `DATABASE_URL` 走内存版，生产必须配
 - 开发尽量用 Claude Code 原生能力；需要 skill/MCP 时在仓库里自建，不装第三方
 
 ## 规矩
@@ -26,11 +26,12 @@
 - 改任何代码：`npm test` 必过；改了核心逻辑再跑 `npm run test:mutate`，逃掉一条就不算完
 - 改抽取或合并逻辑：用 Fenny & Jacks 重跑 `npm run import` 当回归
 - 改提示词、工具定义或换模型：`npm run eval -- quote --record` 重新录制，再 `--replay` 确认 CI 能过；回放指纹对不上就是要重录，不要改指纹
-- 新护栏规矩先写契约测试再写实现：业务规矩放 `packages/core/test/guardrails.test.ts`，公网输入的上限和 SSRF 放 `packages/core/test/security.test.ts`，HTTP 边界放 `apps/api/test/routes.test.ts`
+- 新护栏规矩先写契约测试再写实现：业务规矩放 `packages/core/test/guardrails.test.ts`，公网输入的上限和 SSRF 放 `packages/core/test/security.test.ts`，HTTP 边界放 `apps/api/test/routes.test.ts`，数据层（只有 pending 能 decide、未确认的店 agent 看不到、图片只追加）放 `packages/db/test/stores.test.ts`，用 PGlite 离线跑，CI 不需要数据库
+- 改 `packages/db/src/schema.ts` 后必须 `npm run db:generate -w packages/db` 生成迁移并一起提交，不手改 `migrations/`
 - 不写断言实现常数的测试，不 mock 被测对象，CI 里不调真模型
 
 ## PR 流程
 开分支 → 提交 → `/test-review` → `/code-review` → `/security-review`（直到没有 high）→ 合并。三个审查都跑完才能合，漏了就在合并后的 diff 上补跑并开修复 PR。
 
 ## 常用命令
-`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run dev:api`、`npm run dev:web`
+`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`
