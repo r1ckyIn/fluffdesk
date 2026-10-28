@@ -72,6 +72,11 @@ argument-hint: "[基准，默认 origin/main]"
 | 记 TODO | 成立，但超出这个 PR 的范围或要等外部条件 | 写进 README TODO 对应模块，一行，带来源（第几轮哪条）。high 和 important 不能记 TODO，除非复核子代理同意"成立但确实不属于这个 PR" |
 | 丢弃 | 纯风格、命名、个人偏好，CLAUDE.md 没有对应规矩 | 不记明细，只计数 |
 
+同类发现和配置文件：
+
+- 分诊时拿每条发现对照 `docs/reviews/recurring-findings.md` 和 `git log --grep='fix(review)'` 的提交正文。和以前某个 PR 出现过的是同一类问题，就按那个文件的格式追加一条（状态写"待审"），进本轮的修复提交。这是给人逐条审的，agent 不改"状态"和"决定"两栏，也不因此改规矩。
+- **循环里不改 agent 自己的配置**：`CLAUDE.md`、`.claude/**`、`docs/adr/**`、`.github/pull_request_template.md`、这个文件。审查者对这些文件的发现一律记进 `recurring-findings.md`（状态"待审"），结局算"记 TODO"，不算未修的 high。唯一例外：发现指出的是本 PR 新增配置里的明确错误（命令跑不起来、路径不存在、字段名写错），改动不改变任何规则的含义，这种可以修，提交正文里单列出来。
+
 修复规矩：
 
 - 一轮的所有修复合成**一个提交**，消息 `fix(review): 第 N 轮 k 条`，正文每条一行"发现 → 怎么改"。TODO 的 README 改动也进这个提交。

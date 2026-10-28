@@ -25,8 +25,9 @@
 | 最终状态核对 | 走完后用接口查到的数据（预约状态、替代时段、修正记录） |
 | `inspect.mjs --app`（页面改动必填） | FAIL n · WARN n |
 | 迁移 | 在 Neon dev 分支跑过的输出 |
+| eval 分数前后（改了提示词、工具定义或模型时必填） | 改前 n/24 · 改后 n/24，`--runs 3` 的 pass^3；重录的录制数 |
 
-改了抽取或合并逻辑：Fenny & Jacks 重跑结果。改了提示词或工具定义：重录的录制数。
+改了抽取或合并逻辑：Fenny & Jacks 重跑结果。
 
 ## 审查记录
 
@@ -38,6 +39,10 @@
 
 停止依据：第 N 轮 code-review 没有新的 high 或 important，security 没有 ≥8 的保留项。
 没修的 high 或 important（如有）：每条一行，写否决理由和独立复核的结论。
+
+## 待人审的同类发现
+
+本次追加进 `docs/reviews/recurring-findings.md` 的条目标题，没有就写无。
 
 ## 没做的
 
