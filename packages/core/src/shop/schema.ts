@@ -106,7 +106,7 @@ export function validateShopConfig(input: unknown): ShopConfig {
 
 /**
  * schema 管不到的引用完整性：id 是 agent、价目表和历史预约之间的钥匙，重复的 id 会让 findService 悄悄取到错的那条，
- * 价目指向不存在的体型档会让 quote 找不到价。美容师端 PUT、seed/导入的 upsert 都在写入前查。
+ * 价目指向不存在的体型档会让 quote 找不到价。美容师端 PUT、seed 的 upsert 都在写入前查（导入器只写 JSON 文件，不进库）。
  */
 export function shopReferenceProblems(shop: ShopConfig): string[] {
   const out: string[] = [];
