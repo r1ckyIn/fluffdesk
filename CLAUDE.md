@@ -34,4 +34,4 @@
 开分支 → 提交 → `/test-review` → `/code-review` → `/security-review`（直到没有 high）→ 合并。三个审查都跑完才能合，漏了就在合并后的 diff 上补跑并开修复 PR。
 
 ## 常用命令
-`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`、发 api：`flyctl deploy -a fluffdesk-api -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only`（仓库根目录，保持 1 台机器）
+`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`、发 api：`flyctl deploy -a fluffdesk-api -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only`（仓库根目录，保持 1 台机器）、发 web：`npx vercel --cwd apps/web --prod`

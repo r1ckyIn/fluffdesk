@@ -25,6 +25,7 @@ npm run db:app-role -w packages/db -- production   # 用 owner 串建只有 DML 
 npm run dev:api          # http://localhost:8787/health；没配 DATABASE_URL 走内存存储（重启丢）
 npm run dev:web          # http://localhost:3000
 flyctl deploy -a fluffdesk-api -c apps/api/fly.toml --dockerfile apps/api/Dockerfile --remote-only   # 从仓库根目录发 api，远程构建，部署前自动跑迁移
+npx vercel --cwd apps/web --prod   # 发 web 到 https://fluffdesk-web.vercel.app
 npm run eval -- quote    # 真模型跑 eval（花钱）
 npm run eval -- quote --replay   # 按录制回放，不花钱，CI 用
 npm run eval -- quote --record   # 改了提示词或工具后重新录制
@@ -40,7 +41,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 打勾的是做完并验证过的。
 
 ### 下一步的顺序（2026-10-28 定）
-1. ~~Fly 部署 api~~（已上线）+ Vercel 部署 web：Instagram/WhatsApp 的 webhook 验证和 Web Push 都要公网 HTTPS
+1. ~~Fly 部署 api + Vercel 部署 web~~（2026-10-28 都已上线）
 2. 美容师端：待确认列表、一键确认/拒绝、magic link 登录换掉共享 token。没有这个 demo 给店主看不完整
 3. Instagram 和 WhatsApp 收发消息；Meta 应用审核要排队，和第 2 步并行提交
 4. PR 级 e2e（Neon 分支）：API key 和 NEON_PROJECT_ID 已在 GitHub，等冒烟脚本
@@ -100,7 +101,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 图片按需加载：现在每轮把会话的全部图片读进内存给 identify_pet 用，图多了要改成只读 id、工具用到再取
 - [ ] 会话文字历史的保留期限（产品决定，和 eval 集的需要一起定）
 - [x] Neon：本地只连 dev 分支（`.env` 的 `DATABASE_URL`）；API 用只有 DML 的 `fluffdesk_app`（`db:app-role` 用 SQL 建，控制台建的角色带 neon_superuser）。Free 档没有受保护分支，接受
-- [x] Fly secrets 已设（11 个：两个连接串、模型 key、四个 FLUFF_*_MODEL、GROOMER_API_TOKEN、WHATSAPP_VERIFY_TOKEN、WEB_ORIGIN）。`WEB_ORIGIN` 现在是占位的 `https://fluffdesk.vercel.app`，Vercel 部好后改
+- [x] Fly secrets 已设（11 个：两个连接串、模型 key、四个 FLUFF_*_MODEL、GROOMER_API_TOKEN、WHATSAPP_VERIFY_TOKEN、WEB_ORIGIN）。`WEB_ORIGIN` 已指向 Vercel 正式域名
 - [ ] PR 级 e2e：GitHub Action 每个 PR 从 production 建 Neon 分支、跑连真库的冒烟、PR 关了删分支。要项目级 API key 进 GitHub secrets、`NEON_PROJECT_ID` 做 variable；先写冒烟脚本再建 key
 - [ ] eval 对着临时 Neon 分支跑，判分直接查库的最终状态（现在查内存存储）
 - [x] `hold_booking` 查重：同会话同服务同时段已挂着就回现有的
@@ -109,7 +110,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [x] Fly.io 悉尼区部署 api：app `fluffdesk-api`，https://fluffdesk-api.fly.dev，1 台机器（`fly scale count 1`，进程内的会话锁和限流不支持多实例，别开 HA），release_command 已把迁移 0001 跑到 production
-- [ ] Vercel 部署 web，然后把 Fly 的 `WEB_ORIGIN` 改成真实域名
+- [x] Vercel 部署 web：项目 `fluffdesk-web`，https://fluffdesk-web.vercel.app，根目录 `apps/web`，环境变量 `NEXT_PUBLIC_API_URL` 指向 Fly；发版 `npx vercel --cwd apps/web --prod`
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比
 
 ### 付费验证（销售第二段）
