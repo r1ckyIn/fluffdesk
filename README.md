@@ -89,7 +89,13 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 改 schema 后 `npm run db:generate -w packages/db` 重新生成迁移并提交，不手改 migrations/
 - [ ] 图片按需加载：现在每轮把会话的全部图片读进内存给 identify_pet 用，图多了要改成只读 id、工具用到再取
 - [ ] 会话文字历史的保留期限（产品决定，和 eval 集的需要一起定）
-- [ ] Neon：本地只连 dev 分支（`.env` 的 `DATABASE_URL`）；Fly 上 `DATABASE_URL` 是 production 的 fluffdesk_app 串，`MIGRATE_DATABASE_URL` 是 owner 串只给 release_command。Free 档没有受保护分支
+- [x] Neon：本地只连 dev 分支（`.env` 的 `DATABASE_URL`）；API 用只有 DML 的 `fluffdesk_app`（`db:app-role` 用 SQL 建，控制台建的角色带 neon_superuser）。Free 档没有受保护分支，接受
+- [ ] 部署时设 Fly secrets：`DATABASE_URL` 用 production 的 fluffdesk_app 串，`MIGRATE_DATABASE_URL` 用 owner 串只给 release_command（两个串都在 `~/.config/fluffdesk/`）
+- [ ] PR 级 e2e：GitHub Action 每个 PR 从 production 建 Neon 分支、跑连真库的冒烟、PR 关了删分支。要项目级 API key 进 GitHub secrets、`NEON_PROJECT_ID` 做 variable；先写冒烟脚本再建 key
+- [ ] eval 对着临时 Neon 分支跑，判分直接查库的最终状态（现在查内存存储）
+- [ ] `hold_booking` 重复执行的幂等（按 toolCallId 去重），现在只靠每会话最多两个的上限
+- [ ] 用 `fluffdesk_app` 跑一遍权限被拒的用例（DDL、别的 schema），确认角色降权有效
+- [ ] db 测试逐条回滚（现在每个文件一个新 PGlite 实例，用例之间靠不同 key 隔离）
 - [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web
