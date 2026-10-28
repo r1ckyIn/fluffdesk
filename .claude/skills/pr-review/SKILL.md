@@ -85,7 +85,7 @@ argument-hint: "[基准，默认 origin/main]"
 同类发现和配置文件：
 
 - 分诊时拿每条发现对照 `docs/reviews/recurring-findings.md` 和 `git log --grep='fix(review)'` 的提交正文。和以前某个 PR 出现过的是同一类问题，就按那个文件的格式追加一条（状态写"待审"），进本轮的修复提交。这是给人逐条审的，agent 不改"状态"和"决定"两栏，也不因此改规矩。
-- **循环里不改 agent 自己的配置**：`CLAUDE.md`、`.claude/**`、`docs/adr/**`、`.github/pull_request_template.md`、这个文件。审查者对这些文件的发现一律记进 `recurring-findings.md`（状态"待审"），结局算"记 TODO"，不算未修的 high。唯一例外：发现指出的是本 PR 新增配置里的明确错误（命令跑不起来、路径不存在、字段名写错），改动不改变任何规则的含义，这种可以修，提交正文里单列出来。
+- **循环里不改 agent 自己的配置**：`CLAUDE.md`、`.claude/**`、`docs/adr/**`、`.github/pull_request_template.md`、这个文件。审查者对这些文件的发现一律记进 `recurring-findings.md`（状态"待审"），结局算"记 TODO"，不算未修的 high。两个例外：一、发现指出的是本 PR 新增配置里的明确错误（命令跑不起来、路径不存在、字段名写错），改动不改变任何规则的含义，这种可以修，提交正文里单列出来。二、这个 PR 的交付物本身就是这些规则（人明确要求改流程），那么对规则文本的发现和对代码的发现一样分诊、修复，修复提交正文写明"交付物是规则"。
 
 修复规矩：
 
@@ -125,7 +125,7 @@ argument-hint: "[基准，默认 origin/main]"
 1. 按 `.github/pull_request_template.md` 写 PR 描述：做了什么、风险等级和高风险文件、证据表、审查记录表（每轮一行，范围写提交号）、停止依据、没修的 high（正常应为零）、本次否决并写进 `docs/reviews/dismissed.md` 的条目、没做的。内容全部来自记录文件，不凭记忆。
 2. 在聊天里给人一份同样结构的收尾，加一句"审查共 N 轮，修复 k 条，否决 g 条（复核同意），TODO h 条"。高风险 PR 列出建议人亲自看的文件，不超过五个。
 3. 问一次：推分支并开 PR，CI 绿了之后合并，可以吗。这是整个流程里唯一要人回答的问题。人说可以就 `git push -u origin <分支>`、`gh pr create --body-file`、等 CI、`gh pr merge --squash --delete-branch`，然后更新记忆里的项目进度。
-4. 推送之后任何新提交（包括改 PR 描述以外的文档）都回到第二步，范围是 `<已审到的 HEAD>..HEAD`，合并前补完。
+4. 推送之后任何新提交（包括改 PR 描述以外的文档）都按第四步 3 的补审规则审一次，范围是 `<已审到的 HEAD>..HEAD`，有 high 或 important 就交给人；只改 README TODO、`docs/reviews/**` 的提交免审。合并前补完。
 
 ## 不要做的
 
