@@ -31,7 +31,10 @@
 - 不写断言实现常数的测试，不 mock 被测对象，CI 里不调真模型
 
 ## PR 流程
-开分支 → 提交 → `/test-review` → `/code-review` → `/security-review`（直到没有 high）→ 合并。三个审查都跑完才能合，漏了就在合并后的 diff 上补跑并开修复 PR。
+开分支 → 提交 → `/test-review` → `/code-review` → `/security-review` → 合并。三个审查都跑完才能合，漏了就在合并后的 diff 上补跑并开修复 PR。
+- code-review 和 security-review 都要反复跑，直到一轮没有新的 high 或 important 才算过；medium 以下修不修看取舍，不用再起一轮。修完发现再提交，就再审一轮。
+- 第一轮审整个 PR（`origin/main...HEAD`）；之后每一轮只审上一轮之后的新提交（`<上一轮审到的提交>..HEAD`），别把整个 PR 重审一遍。每轮审到哪个提交记在 PR 描述里。
+- 审查之后又加的任何提交（包括文档、脚本）都算新改动，合并前要补审。
 
 ## 常用命令
-`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`
+`npm run typecheck`、`npm test`（离线）、`npm run test:mutate`、`npm run eval -- quote [--record|--replay|--runs 3]`、`npm run import -- --slug x ...`、`npm run db:migrate`、`npm run db:seed`、`npm run dev:api`、`npm run dev:web`、`npm run deploy:api`、`npm run deploy:web`（都只许从和 origin/main 一致的干净 main 发）

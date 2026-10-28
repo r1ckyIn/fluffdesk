@@ -1,0 +1,3 @@
+# Vercel CLI 上传时不看 .gitignore，只看这个；别把本地环境文件传上去
+.env*
+!.env.example
