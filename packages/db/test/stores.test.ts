@@ -166,6 +166,8 @@ describe("pgTraceSink", () => {
   it("never throws into the agent loop when the write fails", async () => {
     const tracer = new Tracer("cv_does_not_exist", [pgTraceSink(db)]);
     tracer.end(tracer.start("agent.turn"));
-    await expect(tracer.finish()).resolves.toBeDefined();
+    const trace = await tracer.finish(); // 外键挂了也要把轨迹还给循环
+    expect(trace.id).toBe(tracer.trace.id);
+    expect(await db.select().from(schema.traces).where(eq(schema.traces.id, trace.id))).toHaveLength(0);
   });
 });
