@@ -46,4 +46,4 @@
 
 ## 没做的
 
-留给后续 PR 的，已写进 README TODO 的条目。
+留给后续 PR 的，每条一个 issue 链接（分诊记 TODO 的都开 issue，README TODO 只记进展）。
