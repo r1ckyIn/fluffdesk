@@ -180,6 +180,21 @@ describe("按日期查已确认的预约", () => {
   });
 });
 
+describe("历史列表的次序", () => {
+  it("same-instant decisions fall back to newest-created first, like the Postgres store", async () => {
+    let t = Date.parse("2026-10-28T00:00:00Z");
+    const store = new InMemoryBookingStore(undefined, () => new Date(t).toISOString());
+    const mk = (conversationId: string, start: string) => store.createPending({ shopSlug: "s", conversationId, customer: { name: "A", contact: "0", channel: "web" }, pet: { species: "dog" }, serviceId: "x", durationMin: 60, start });
+    const older = await mk("c1", "2026-11-03T09:00");
+    t += 1000;
+    const newer = await mk("c2", "2026-11-03T10:00");
+    t += 1000; // 两条在同一时刻被决定
+    await store.decide(older.id, { status: "confirmed", by: "g" });
+    await store.decide(newer.id, { status: "declined", by: "g" });
+    expect((await store.listByStatus("s", ["confirmed", "declined"])).map((b) => b.id)).toEqual([newer.id, older.id]);
+  });
+});
+
 describe("店铺资料的引用完整性", () => {
   const base = JSON.parse(JSON.stringify(demoShop)) as typeof demoShop;
   it("the write boundary rejects duplicate service ids, duplicate tier ids and prices that point at a missing tier", () => {

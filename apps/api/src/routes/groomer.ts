@@ -142,9 +142,11 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     return c.json({ correction }, 201);
   });
 
+  /** 修正记录。?conversationId= 只取一段会话的：详情页按条看，不用每次把整家店的都拉下来 */
   routes.get("/:shop/corrections", async (c) => {
-    const items = await c.get("rt").corrections.list(c.req.param("shop"));
-    return c.json({ items });
+    const conversationId = c.req.query("conversationId");
+    const all = await c.get("rt").corrections.list(c.req.param("shop"));
+    return c.json({ items: conversationId ? all.filter((x) => x.conversationId === conversationId) : all });
   });
 
   routes.get("/:shop/shop", (c) => c.json({ shop: c.get("shop") }));

@@ -49,8 +49,9 @@ export function BookingDetail({ booking, onDecided, onBack }: { booking: Booking
     setDeclining(false);
     setFlash(null);
     setPhotos([]);
+    setCorrections([]); // 换了一条就清掉上一条的"已纠正"，等这条自己的回来
     let alive = true;
-    api.corrections(session).then((all) => alive && setCorrections(all.filter((c) => c.conversationId === booking.conversationId))).catch(() => {});
+    api.corrections(session, booking.conversationId).then((mine) => alive && setCorrections(mine)).catch(() => {});
     return () => {
       alive = false;
     };

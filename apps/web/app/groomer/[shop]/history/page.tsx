@@ -34,6 +34,7 @@ function History() {
   const load = useCallback(() => {
     const mine = ++seq.current;
     setFailed(false);
+    setItems(null); // 重拉期间不留旧列表，失败时页面上只有错误态，不会把旧数据当新数据看
     api
       .bookings(session, "decided")
       .then((x) => mine === seq.current && setItems(x))

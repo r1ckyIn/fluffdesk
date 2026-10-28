@@ -44,7 +44,8 @@ export const api = {
   },
   availability: (s: GroomerSession, date: string, serviceId: string) =>
     call<{ slots: Slot[] }>(s, `/availability?date=${encodeURIComponent(date)}&serviceId=${encodeURIComponent(serviceId)}`).then((x) => x.slots),
-  corrections: (s: GroomerSession) => call<{ items: Correction[] }>(s, "/corrections").then((x) => x.items),
+  corrections: (s: GroomerSession, conversationId?: string) =>
+    call<{ items: Correction[] }>(s, conversationId ? `/corrections?conversationId=${encodeURIComponent(conversationId)}` : "/corrections").then((x) => x.items),
   correct: (s: GroomerSession, c: { conversationId: string; kind: Correction["kind"]; original: unknown; corrected: unknown; note?: string }) =>
     call<{ correction: Correction }>(s, "/corrections", { method: "POST", body: JSON.stringify({ ...c, by: s.name }) }).then((x) => x.correction),
 };

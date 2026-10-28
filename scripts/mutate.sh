@@ -49,6 +49,7 @@ MUTATIONS=(
   'apps/api/src/routes/groomer.ts@@s/if (!limits.groomerIp.take(ip))/if (!limits.perIp.take(ip))/@@美容师端和聊天共用每 IP 预算'
   'apps/api/src/routes/groomer.ts@@s/ || !limits.groomerAuthAll.take("all")//@@猜令牌换 IP 就没有全站上限'
   'packages/db/src/stores/shops.ts@@s/const cfg = validateShopConfig(config);/const cfg = parseShopConfig(config);/g@@Postgres 写边界不查引用完整性'
+  'packages/core/src/booking/ports.ts@@s/ || b.createdAt.localeCompare(a.createdAt)//@@历史列表平手时次序随机'
 )
 
 files=()

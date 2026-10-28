@@ -66,6 +66,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 模型评审和人工打分对齐（75% 以上），再启用 judge
 - [x] 自建 `.claude/skills/test-review`（守测试写法）和 `.claude/skills/pr-review`（审查循环，ADR 0002）
 - [ ] 新加核心逻辑时同步往 `scripts/mutate.sh` 加变异，否则护栏没人验
+- [ ] `packages/eval/datasets/shops.json` 的加载和校验在 `apps/api/src/runtime.ts`、`packages/eval/src/runner.ts`、`packages/db/src/seed.ts` 各写了一遍，收成一个共享的 loader（chore/taste-skill 第 4 轮审查）
 - [ ] 浏览器走查通过的关键流程（美容师端确认/拒绝、聊天页询价）改写成 Playwright e2e 放进 CI，Chrome 负责探索，Playwright 负责防回归
 - [ ] 改抽取或合并逻辑后，用 Fenny & Jacks 重跑当回归（七个服务、六档价目、营业时间周一到周六）
 
