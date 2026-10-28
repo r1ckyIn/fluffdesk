@@ -26,7 +26,8 @@ beforeAll(async () => {
   const db = drizzle(pg, { schema });
   await migrate(db, { migrationsFolder: resolve(dirname(fileURLToPath(import.meta.url)), "../migrations") });
   await pg.exec(`create role ${APP_ROLE} login`);
-  for (const stmt of appRoleGrants("postgres")) await pg.exec(stmt);
+  const dbName = String((await pg.query<{ db: string }>("select current_database() as db")).rows[0]?.db);
+  for (const stmt of appRoleGrants(dbName)) await pg.exec(stmt);
 }, 60_000);
 
 describe("fluffdesk_app role", () => {

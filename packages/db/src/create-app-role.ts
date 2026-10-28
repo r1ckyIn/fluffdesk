@@ -3,16 +3,17 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import postgres from "postgres";
-import { APP_ROLE, appRoleGrants } from "./app-role.js";
+import { APP_ROLE, appRoleGrants, ident } from "./app-role.js";
 
 /**
  * 一次性：用 owner 串在当前分支建最小权限角色 fluffdesk_app（只有 DML，没有 CREATE），
  * 把 app 连接串写到 ~/.config/fluffdesk/<branch-label>-app.url（0600）。全程不打印任何凭据。
  * 角色已存在就只轮换密码并重新授权。
  */
-const url = process.env.DATABASE_URL;
+// 要 owner 权限：线上 DATABASE_URL 是 app 角色自己，得用 MIGRATE_DATABASE_URL；本地 dev 分支的 DATABASE_URL 就是 owner
+const url = process.env.MIGRATE_DATABASE_URL ?? process.env.DATABASE_URL;
 if (!url) {
-  console.error("DATABASE_URL is not set");
+  console.error("MIGRATE_DATABASE_URL or DATABASE_URL must be set (owner role)");
   process.exit(2);
 }
 const label = process.argv[2] ?? "production";
@@ -25,8 +26,8 @@ try {
   const [dbRow] = await owner`select current_database() as db`;
   const dbName = String(dbRow?.db);
   const [exists] = await owner`select 1 from pg_roles where rolname = ${ROLE}`;
-  if (exists) await owner.unsafe(`alter role ${ROLE} with login password ${lit(password)}`);
-  else await owner.unsafe(`create role ${ROLE} with login password ${lit(password)}`);
+  if (exists) await owner.unsafe(`alter role ${ident(ROLE)} with login password ${lit(password)}`);
+  else await owner.unsafe(`create role ${ident(ROLE)} with login password ${lit(password)}`);
   for (const stmt of appRoleGrants(dbName, ROLE)) await owner.unsafe(stmt);
   console.log(`role ${ROLE} ${exists ? "rotated" : "created"} on db=${dbName}`);
 } finally {

@@ -131,7 +131,7 @@ describe("预约刷量", () => {
     for (let i = 0; i < LIMITS.pendingBookingsPerConversation; i++) expect((await holdBookingTool.run(args(i), ctx)).isError).toBeFalsy();
     const r = await holdBookingTool.run(args(LIMITS.pendingBookingsPerConversation), ctx);
     expect(r.isError).toBe(true);
-    expect(await bookings.countPendingForConversation("c1")).toBe(LIMITS.pendingBookingsPerConversation);
+    expect(await bookings.listPendingForConversation("c1")).toHaveLength(LIMITS.pendingBookingsPerConversation);
   });
   it("hold_booking rejects a malformed start", async () => {
     const { gateway } = fauxGateway();

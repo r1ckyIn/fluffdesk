@@ -152,7 +152,6 @@ describe("PgBookingStore", () => {
     expect(await bookings.get(b.id)).toEqual(b);
     expect((await bookings.listPending("s1")).map((x) => x.id)).toContain(b.id);
     expect((await bookings.listPending("s1")).every((x) => x.shopSlug === "s1")).toBe(true);
-    expect(await bookings.countPendingForConversation(conv.id)).toBe(1);
     expect((await bookings.listPendingForConversation(conv.id)).map((x) => x.id)).toEqual([b.id]);
     expect(await bookings.listPendingForConversation(other.id)).toHaveLength(1);
   });
@@ -165,7 +164,20 @@ describe("PgBookingStore", () => {
     await expect(bookings.decide(b.id, { status: "confirmed", by: "groomer-2" })).rejects.toThrow(/already declined/);
     expect((await bookings.get(b.id))?.status).toBe("declined");
     await expect(bookings.decide("bk_missing", { status: "confirmed", by: "g" })).rejects.toThrow(/not found/);
-    expect(await bookings.countPendingForConversation(conv.id)).toBe(0);
+    expect(await bookings.listPendingForConversation(conv.id)).toHaveLength(0);
+  });
+  it("the same slot requested twice at once yields one pending booking, which can then be updated in place", async () => {
+    const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-slot" }, "en");
+    const [a, b] = await Promise.all([bookings.createPending(pendingInput(conv)), bookings.createPending(pendingInput(conv))]);
+    expect(b.id).toBe(a.id);
+    expect(await bookings.listPendingForConversation(conv.id)).toHaveLength(1);
+    const updated = await bookings.updatePending(a.id, { ...pendingInput(conv), customer: { name: "Amy", contact: "0411", channel: "web" } });
+    expect(updated).toMatchObject({ id: a.id, status: "pending", customer: { contact: "0411" } });
+    await bookings.decide(a.id, { status: "declined", by: "g" });
+    await expect(bookings.updatePending(a.id, pendingInput(conv))).rejects.toThrow(/already declined/);
+    // 决定过的不占槽位：同时段可以再挂一条新的待确认
+    const again = await bookings.createPending(pendingInput(conv));
+    expect(again.id).not.toBe(a.id);
   });
   it("two groomers deciding at once: exactly one wins", async () => {
     const conv = await conversations.findOrCreate({ shopSlug: "s1", channel: "web", externalId: "bk-race" }, "en");

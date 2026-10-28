@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "bookings_pending_slot" ON "bookings" USING btree ("conversation_id","service_id","start") WHERE "bookings"."status" = 'pending';

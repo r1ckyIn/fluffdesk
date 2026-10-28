@@ -8,6 +8,13 @@
       "when": 1793151821348,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793155276380,
+      "tag": "0001_bookings_pending_slot",
+      "breakpoints": true
     }
   ]
 }

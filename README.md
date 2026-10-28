@@ -93,9 +93,9 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [ ] 部署时设 Fly secrets：`DATABASE_URL` 用 production 的 fluffdesk_app 串，`MIGRATE_DATABASE_URL` 用 owner 串只给 release_command（两个串都在 `~/.config/fluffdesk/`）
 - [ ] PR 级 e2e：GitHub Action 每个 PR 从 production 建 Neon 分支、跑连真库的冒烟、PR 关了删分支。要项目级 API key 进 GitHub secrets、`NEON_PROJECT_ID` 做 variable；先写冒烟脚本再建 key
 - [ ] eval 对着临时 Neon 分支跑，判分直接查库的最终状态（现在查内存存储）
-- [ ] `hold_booking` 重复执行的幂等（按 toolCallId 去重），现在只靠每会话最多两个的上限
-- [ ] 用 `fluffdesk_app` 跑一遍权限被拒的用例（DDL、别的 schema），确认角色降权有效
-- [ ] db 测试逐条回滚（现在每个文件一个新 PGlite 实例，用例之间靠不同 key 隔离）
+- [x] `hold_booking` 查重：同会话同服务同时段已挂着就回现有的
+- [x] `fluffdesk_app` 的权限用例在 PGlite 里跑：能读写、不能 DDL、不能碰 drizzle schema、新表自动授权
+- [x] db 测试每条前清空重灌
 - [ ] 迁移挪到 GitHub Action 的部署步骤，Fly 的机器上就不用放 owner 串（demo 阶段先接受两个串同在 Fly secrets）
 - [ ] 多实例时会话锁和限流要从进程内换到数据库（现在单实例）
 - [ ] Fly.io 悉尼区部署 api，Vercel 部署 web

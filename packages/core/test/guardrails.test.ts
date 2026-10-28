@@ -49,18 +49,29 @@ describe("写操作必须等美容师确认", () => {
     const forced = await store.createPending({ ...(b as never), status: "confirmed" } as never);
     expect(forced.status).toBe("pending");
   });
-  it("hold_booking called twice for the same slot returns the existing pending booking instead of a second one", async () => {
+  it("hold_booking called again for the same slot updates the pending booking instead of adding a second one", async () => {
     const c = ctx();
     const args = { customerName: "A", contact: "0400", serviceId: "bath-tidy", start: "2026-11-03T10:00", pet: { species: "dog", sizeTier: "small" } };
     const first = await holdBookingTool.run(args, c);
-    const second = await holdBookingTool.run({ ...args, customerName: "A again" }, c);
+    const second = await holdBookingTool.run({ ...args, contact: "0411", pet: { species: "dog", sizeTier: "medium" } }, c);
     expect(second.isError).not.toBe(true);
-    expect(second.details).toMatchObject({ bookingId: (first.details as { bookingId: string }).bookingId, duplicate: true });
-    expect(second.text).toContain("already exists");
-    expect(await (c.bookings as InMemoryBookingStore).listPending(demoShop.slug)).toHaveLength(1);
+    expect(second.details).toMatchObject({ bookingId: (first.details as { bookingId: string }).bookingId, updated: true });
+    const store = c.bookings as InMemoryBookingStore;
+    const pending = await store.listPending(demoShop.slug);
+    expect(pending).toHaveLength(1);
+    // 客人改的联系方式和体型进了同一条，报价跟着体型重算，状态还是 pending
+    expect(pending[0]).toMatchObject({ status: "pending", customer: { contact: "0411" }, pet: { sizeTier: "medium" }, quote: { min: 80, max: 100 } });
     // 换个时段就是新的请求
     await holdBookingTool.run({ ...args, start: "2026-11-03T11:00" }, c);
-    expect(await (c.bookings as InMemoryBookingStore).listPending(demoShop.slug)).toHaveLength(2);
+    expect(await store.listPending(demoShop.slug)).toHaveLength(2);
+  });
+  it("a decided booking cannot be rewritten through updatePending", async () => {
+    const store = new InMemoryBookingStore();
+    const input = { shopSlug: "s", conversationId: "c", customer: { name: "A", contact: "0", channel: "t" }, pet: { species: "dog" as const }, serviceId: "x", start: "2026-11-03T10:00", durationMin: 60 };
+    const b = await store.createPending(input);
+    await store.decide(b.id, { status: "confirmed", by: "g" });
+    await expect(store.updatePending(b.id, { ...input, customer: { ...input.customer, contact: "9" } })).rejects.toThrow(/already confirmed/);
+    expect((await store.get(b.id))?.customer.contact).toBe("0");
   });
   it("hold_booking rejects an unknown service instead of booking something else", async () => {
     const c = ctx();
