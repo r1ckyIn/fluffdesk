@@ -38,3 +38,11 @@
 - 当时怎么处理：PR #1 修（perIp / perSession）；feat/whatsapp-channel#1 修（`limits.webhookIp`，读请求体之前先限，变异脚本加一条）
 - 建议写到哪：security.test.ts 加一条"每个挂在 app 上的公网 POST 路由都要在读请求体之前过某个 RateLimiter"的契约测试（枚举路由表），或 CLAUDE.md 护栏一句"新路由先接限流再读 body"；也可进 pr-review 的高风险路径说明
 - 决定：
+
+## /pr-review 的分诊档位和内置 /code-review 的产出对不上
+- 状态：待审
+- 出现：feat/whatsapp-channel#1（2026-10-29）
+- 原文：`.claude/skills/pr-review/SKILL.md` 第三步按 code-review 的 high / important / 其余 分诊；Claude Code 内置 `/code-review` 的产出（ReportFindings）只有 level（跑的力度）、每条的 category、failure_scenario 和跑了核实才有的 verdict（CONFIRMED / PLAUSIBLE），按严重度排序但不标档位。本轮回来的 8 条连 category 和 verdict 都没带，级别是作者按内容定的
+- 当时怎么处理：按内容定级（correctness 且有明确丢消息/错店后果的定 important，小 bug 定 medium 按二十行规则修，效率和整理类记 issue），记录文件里写明"审查者未标级别"
+- 建议写到哪：pr-review 第三步加一段映射：有 verdict 时 CONFIRMED → important、PLAUSIBLE → 其余；没有时 category 为 correctness → important，efficiency / simplification / reuse → 其余；两者都没有时作者按内容定并在记录里注明
+- 决定：
