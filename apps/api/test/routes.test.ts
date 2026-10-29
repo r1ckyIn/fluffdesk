@@ -3,7 +3,8 @@ import { createHmac } from "node:crypto";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { conversationKey, createGateway, defaultTools, newConversation, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, LIMITS, Tracer, type Conversation } from "@fluffdesk/core";
 import { chunkByBytes, chunkText, MEDIA_MAX_BYTES, verifyMetaSignature } from "../src/channels/meta.js";
-import { CANNED, parseWhatsAppPayload } from "../src/channels/whatsapp.js";
+import { parseWhatsAppPayload } from "../src/channels/whatsapp.js";
+import { CANNED } from "../src/channels/inbound.js";
 import { parseInstagramPayload } from "../src/channels/instagram.js";
 import { createApp } from "../src/app.js";
 import { createRuntime, type Runtime } from "../src/runtime.js";
@@ -24,12 +25,12 @@ const shop = parseShopConfig({
   policies: { quoteDisclaimer: { en: "in store", zh: "到店" } },
 });
 
-function testRuntime(): Runtime {
+function testRuntime(replyText = "hello"): Runtime {
   const faux = fauxProvider();
   const models = createModels();
   models.setProvider(faux.provider);
   const m = faux.getModel();
-  faux.setResponses(Array.from({ length: 50 }, () => fauxAssistantMessage([fauxText("hello")])));
+  faux.setResponses(Array.from({ length: 50 }, () => fauxAssistantMessage([fauxText(replyText)])));
   const bookings = new InMemoryBookingStore();
   return {
     gateway: createGateway({ models, roleModels: { chat: m, vision: m, judge: m, fallback: m } }),
@@ -656,10 +657,10 @@ describe("instagram webhook", () => {
     }) as unknown as typeof fetch;
     return { calls, fetchImpl, sends: () => calls.filter((c) => c.method === "POST" && c.url.endsWith("/messages")) };
   }
-  function igApp(env: Record<string, string | undefined> = igEnv, graph = fakeGraph()) {
-    const rt = testRuntime();
+  function igApp(env: Record<string, string | undefined> = igEnv, graph = fakeGraph(), opts: { lookup?: () => Promise<string[]>; replyText?: string } = {}) {
+    const rt = testRuntime(opts.replyText);
     rt.shops = new InMemoryShopRepo([shop, igShop]);
-    const app = createApp(rt, env, { fetch: graph.fetchImpl, instagramGraphBase: IG_GRAPH, lookup: async () => ["93.184.216.34"] });
+    const app = createApp(rt, env, { fetch: graph.fetchImpl, instagramGraphBase: IG_GRAPH, lookup: opts.lookup ?? (async () => ["93.184.216.34"]) });
     return { rt, app, graph, drain: () => rt.background.drain() };
   }
   const event = (message: Record<string, unknown>, extra: Record<string, unknown> = {}, accountId = "17841400000000001") => ({
@@ -694,9 +695,72 @@ describe("instagram webhook", () => {
     expect(JSON.stringify(conv?.messages)).toContain("how much for a bath");
     const sends = graph.sends();
     expect(sends).toHaveLength(1);
-    expect(sends[0]!.url).toBe(`${IG_GRAPH}/17841400000000001/messages`);
+    // /me/messages 在 Instagram Login 和 Unified Login 两条路线下都成立，不用猜该填 IG 账号 id 还是 page id
+    expect(sends[0]!.url).toBe(`${IG_GRAPH}/me/messages`);
     expect(sends[0]!.headers.authorization).toBe(`Bearer ${IG_TOKEN}`);
     expect(JSON.parse(sends[0]!.body!)).toEqual({ recipient: { id: IGSID }, message: { text: "hello" } });
+  });
+  it("INSTAGRAM_GRAPH_BASE must be an absolute https url, so a bare host from a config typo fails at startup instead of on every reply", () => {
+    expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "graph.facebook.com" })).toThrow(/INSTAGRAM_GRAPH_BASE/);
+    expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "http://graph.facebook.com/v21.0" })).toThrow(/INSTAGRAM_GRAPH_BASE/);
+    expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "https://graph.facebook.com/v21.0" })).not.toThrow();
+    expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "https://graph.facebook.com/v21.0/" })).not.toThrow();
+  });
+  it("splits a long reply into several sends of at most 1000 utf-8 bytes each", async () => {
+    const long = "报价区间以到店评估为准。".repeat(120); // 约 4300 字节
+    const { app, graph, drain } = igApp(igEnv, fakeGraph(), { replyText: long });
+    await app.request("/webhooks/instagram", signed(text("hi")));
+    await drain();
+    const bodies = graph.sends().map((s) => JSON.parse(s.body!).message.text as string);
+    expect(bodies.length).toBeGreaterThan(1);
+    expect(bodies.join("")).toBe(long);
+    for (const b of bodies) expect(Buffer.byteLength(b, "utf8")).toBeLessThanOrEqual(1000);
+  });
+  it("refuses to download an attachment whose url resolves to a private address", async () => {
+    const { app, rt, graph, drain } = igApp(igEnv, fakeGraph(), { lookup: async () => ["169.254.169.254"] });
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.ssrf", attachments: [{ type: "image", payload: { url: "https://lookaside.test/ig_messaging_cdn/?asset_id=1" }, }] })));
+    await drain();
+    expect(graph.calls.some((c) => c.method === "GET")).toBe(false);
+    expect(await convOf(rt)).toBeUndefined();
+    expect(JSON.parse(graph.sends()[0]!.body!).message.text).toBe(CANNED.mediaFailed);
+  });
+  it("ignores quick reactions, story mentions and shares instead of scolding the customer", async () => {
+    const { app, rt, graph, drain } = igApp();
+    for (const [i, type] of ["like_heart", "story_mention", "share", "ig_reel"].entries()) {
+      await app.request("/webhooks/instagram", signed(event({ mid: `mid.q${i}`, attachments: [{ type, payload: { url: "https://lookaside.test/x" } }] })));
+    }
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(graph.calls).toHaveLength(0);
+  });
+  it("a message that arrived before the shop was bound can be replayed once the binding exists", async () => {
+    const { app, rt, graph, drain } = igApp();
+    rt.shops = new InMemoryShopRepo([shop]); // 还没绑
+    await app.request("/webhooks/instagram", signed(text("early bird", "mid.early")));
+    await drain();
+    expect(graph.calls).toHaveLength(0);
+    rt.shops = new InMemoryShopRepo([shop, igShop]); // 绑上了，Meta 重投或人工重放
+    await app.request("/webhooks/instagram", signed(text("early bird", "mid.early")));
+    await drain();
+    expect(JSON.stringify((await convOf(rt))?.messages)).toContain("early bird");
+    expect(graph.sends()).toHaveLength(1);
+  });
+  it("ignores a message whose sender is the shop account itself even without the is_echo flag", async () => {
+    const { app, rt, graph, drain } = igApp();
+    const self = { object: "instagram", entry: [{ id: "17841400000000001", messaging: [{ sender: { id: "17841400000000001" }, recipient: { id: IGSID }, message: { mid: "mid.self", text: "hello" } }] }] };
+    await app.request("/webhooks/instagram", signed(self));
+    await drain();
+    expect(await rt.conversations.get("ig:instagram:17841400000000001")).toBeUndefined();
+    expect(graph.calls).toHaveLength(0);
+  });
+  it("gives each product its own per-ip webhook budget so one product's burst cannot starve the other", async () => {
+    const { app, rt } = igApp({ ...igEnv, WHATSAPP_ACCESS_TOKEN: "wa" });
+    rt.limits.webhookIp = new RateLimiter(2, 60_000);
+    const unsigned = { method: "POST", headers: { "x-forwarded-for": "203.0.113.77" }, body: "{}" } as RequestInit;
+    expect((await app.request("/webhooks/instagram", unsigned)).status).toBe(401);
+    expect((await app.request("/webhooks/instagram", unsigned)).status).toBe(401);
+    expect((await app.request("/webhooks/instagram", unsigned)).status).toBe(429);
+    expect((await app.request("/webhooks/whatsapp", unsigned)).status).toBe(401);
   });
   it("also accepts the changes[].value shape and drops events for an account no shop is bound to", async () => {
     const { app, rt, graph, drain } = igApp();
@@ -711,7 +775,8 @@ describe("instagram webhook", () => {
     const { app, rt, graph, drain } = igApp();
     const echo = { object: "instagram", entry: [{ id: "17841400000000001", messaging: [{ sender: { id: "17841400000000001" }, recipient: { id: IGSID }, message: { mid: "mid.e", text: "hello", is_echo: true } }] }] };
     await app.request("/webhooks/instagram", signed(echo));
-    await app.request("/webhooks/instagram", signed(event({ mid: "mid.d", is_deleted: true })));
+    // 已删的通知按文档没有正文；这里故意带上文字，证明挡住它的是 is_deleted 而不是"没内容"
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.d", text: "gone", is_deleted: true })));
     await app.request("/webhooks/instagram", signed(event({}, { read: { mid: "mid.1" } })));
     await app.request("/webhooks/instagram", signed(event({}, { reaction: { mid: "mid.1", action: "react", emoji: "❤️" } })));
     await app.request("/webhooks/instagram", signed(event({}, { postback: { mid: "mid.p", title: "Yes", payload: "YES" } })));
@@ -789,6 +854,7 @@ describe("instagram webhook", () => {
     const lines = Array.from({ length: 30 }, (_, i) => `line ${i} ${"🐶".repeat(20)}`).join("\n");
     const lp = chunkByBytes(lines, 300);
     expect(lp.join("\n")).toBe(lines); // 在换行处断
+    for (const p of lp) expect(Buffer.byteLength(p, "utf8")).toBeLessThanOrEqual(300);
     expect(chunkByBytes("", 950)).toEqual([""]);
     expect(() => chunkByBytes("x", 3)).toThrow(/maxBytes/);
   });

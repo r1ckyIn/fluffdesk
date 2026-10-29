@@ -34,6 +34,13 @@ export interface SafeFetchBytesResult {
   url: string;
 }
 
+/** 响应体超过字节上限。调用方按类型认，不要去匹配报错文本 */
+export class ResponseTooLargeError extends Error {
+  constructor(url: string, public readonly maxBytes: number) {
+    super(`response larger than ${maxBytes} bytes: ${url}`);
+  }
+}
+
 export class UnsafeUrlError extends Error {
   constructor(url: string, reason: string) {
     super(`refusing to fetch ${url}: ${reason}`);
@@ -143,7 +150,7 @@ export async function safeFetchBytes(raw: string, opts: SafeFetchBytesOptions = 
       throw new Error(`http ${res.status} for ${current}`);
     }
     const { bytes, truncated } = await readCapped(res, maxBytes);
-    if (truncated) throw new Error(`response larger than ${maxBytes} bytes: ${current}`);
+    if (truncated) throw new ResponseTooLargeError(current, maxBytes);
     return { bytes, contentType: res.headers.get("content-type") ?? "", url: u.toString() };
   }
   throw new UnsafeUrlError(raw, `more than ${maxRedirects} redirects`);

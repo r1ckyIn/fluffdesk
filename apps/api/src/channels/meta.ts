@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { IMAGE_MIME_ALLOWLIST, LIMITS, safeFetchBytes } from "@fluffdesk/core";
+import { IMAGE_MIME_ALLOWLIST, LIMITS, ResponseTooLargeError, safeFetchBytes } from "@fluffdesk/core";
 
 /**
  * Instagram 和 WhatsApp 共用的 Meta 这一层：webhook 验签、Graph API 发消息、拉媒体。
@@ -22,8 +22,21 @@ export function metaDeps(config: Record<string, string | undefined>, overrides: 
     fetch: overrides.fetch ?? globalThis.fetch,
     lookup: overrides.lookup,
     graphBase: overrides.graphBase ?? `https://graph.facebook.com/${version}`,
-    instagramGraphBase: overrides.instagramGraphBase ?? config.INSTAGRAM_GRAPH_BASE ?? `https://graph.instagram.com/${version}`,
+    instagramGraphBase: overrides.instagramGraphBase ?? instagramGraphBaseFrom(config.INSTAGRAM_GRAPH_BASE, version),
   };
+}
+
+/** 配置里的 Graph 地址要是完整的 https URL（含版本），裸主机这类笔误在启动时就报，不能到每次回复才 fetch 失败 */
+function instagramGraphBaseFrom(raw: string | undefined, version: string): string {
+  if (!raw) return `https://graph.instagram.com/${version}`;
+  let u: URL | undefined;
+  try {
+    u = new URL(raw);
+  } catch {
+    u = undefined;
+  }
+  if (!u || u.protocol !== "https:") throw new Error(`INSTAGRAM_GRAPH_BASE must be an absolute https url like https://graph.facebook.com/${version}, got "${raw}"`);
+  return u.toString().replace(/\/+$/, "");
 }
 
 /**
@@ -91,10 +104,13 @@ export function chunkByBytes(text: string, maxBytes: number): string[] {
 /** Instagram 一条文字最多 1000 字节，留点余量 */
 const INSTAGRAM_TEXT_MAX_BYTES = 950;
 
-/** Instagram Login 路线：POST /{ig-user-id}/messages，Bearer 是 Instagram 用户 token */
-export async function sendInstagramText(deps: MetaDeps, token: string, igAccountId: string, to: string, text: string): Promise<void> {
+/**
+ * POST /me/messages：Instagram Login 路线（graph.instagram.com，Bearer 是 Instagram 用户 token）和 Unified Login 路线
+ * （graph.facebook.com，System User token）都认 /me，不用猜该填 IG 账号 id 还是 page id
+ */
+export async function sendInstagramText(deps: MetaDeps, token: string, to: string, text: string): Promise<void> {
   for (const body of chunkByBytes(text, INSTAGRAM_TEXT_MAX_BYTES)) {
-    const res = await deps.fetch(`${deps.instagramGraphBase}/${encodeURIComponent(igAccountId)}/messages`, {
+    const res = await deps.fetch(`${deps.instagramGraphBase}/me/messages`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ recipient: { id: to }, message: { text: body } }),
@@ -116,7 +132,7 @@ export async function fetchInstagramImage(deps: MetaDeps, url: string): Promise<
     if (!IMAGE_MIME_ALLOWLIST.has(mimeType)) return { error: "type" };
     return { data: bytes.toString("base64"), mimeType };
   } catch (e) {
-    return { error: /larger than/.test((e as Error).message) ? "size" : "fetch" };
+    return { error: e instanceof ResponseTooLargeError ? "size" : "fetch" };
   }
 }
 
@@ -165,6 +181,6 @@ export async function fetchWhatsAppMedia(deps: MetaDeps, token: string, mediaId:
     const { bytes } = await safeFetchBytes(meta.url, { fetch: deps.fetch, lookup: deps.lookup, headers: auth, maxBytes: MEDIA_MAX_BYTES, accept: "image/*" });
     return { data: bytes.toString("base64"), mimeType };
   } catch (e) {
-    return { error: /larger than/.test((e as Error).message) ? "size" : "fetch" };
+    return { error: e instanceof ResponseTooLargeError ? "size" : "fetch" };
   }
 }

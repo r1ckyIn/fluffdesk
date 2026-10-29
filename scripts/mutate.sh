@@ -58,7 +58,7 @@ MUTATIONS=(
   'apps/api/src/channels/inbound.ts@@s/if (!rt.limits.perSession.take(`${spec.channel}:${ev.from}`)) return;/if (false) return;/@@Meta 渠道每客人没有限流'
   'apps/api/src/channels/meta.ts@@s/if (!IMAGE_MIME_ALLOWLIST.has(mimeType)) return { error: "type" };/if (false) return { error: "type" };/@@WhatsApp 图片不看类型'
   'apps/api/src/channels/meta.ts@@s/if (typeof meta.file_size === "number" \&\& meta.file_size > MEDIA_MAX_BYTES)/if (false)/@@WhatsApp 图片元数据超大也去下载'
-  'packages/core/src/shop/importer/safe-fetch.ts@@s/if (truncated) throw new Error/if (false) throw new Error/@@二进制抓取超上限不报错只截断'
+  'packages/core/src/shop/importer/safe-fetch.ts@@s/if (truncated) throw new ResponseTooLargeError/if (false) throw new ResponseTooLargeError/@@二进制抓取超上限不报错只截断'
   'packages/core/src/shop/importer/safe-fetch.ts@@s/const extra = u.origin === origin ? opts.headers ?? {} : {};/const extra = opts.headers ?? {};/@@bearer 跟着重定向换主机'
   'apps/api/src/channels/whatsapp.ts@@s/!PHONE.test(m.from)/false/@@WhatsApp 发件号码不校验格式'
   'apps/api/src/routes/groomer.ts@@s/if (e instanceof ChannelBindingConflictError) return c.json/if (false) return c.json/@@渠道账号冲突不翻成 409'
@@ -67,7 +67,7 @@ MUTATIONS=(
   'packages/core/src/shop/repo.ts@@s/other.slug !== config.slug \&\& //@@店自己已有的绑定也算冲突'
   'apps/api/src/channels/meta.ts@@s/if (before >= 0xd800 \&\& before <= 0xdbff \&\& at > 1) at -= 1;/if (false) at -= 1;/@@chunkText 切断代理对'
   'apps/api/src/channels/inbound.ts@@s/await reply(CANNED.failed).catch/await Promise.resolve().catch/@@回复发不出去时不告诉客人'
-  'apps/api/src/routes/webhooks.ts@@s/if (!rt.limits.webhookIp.take(clientIp(c)))/if (false)/@@webhook 没有每 IP 上限'
+  'apps/api/src/routes/webhooks.ts@@s/if (!rt.limits.webhookIp.take(/if (false \&\& rt.limits.webhookIp.take(/@@webhook 没有每 IP 上限'
   'apps/api/src/channels/inbound.ts@@s/seen.delete(ev.messageId);//@@处理失败的消息 id 留在去重表里，重放进不来'
   'apps/api/src/runtime.ts@@s/await background.drain();//@@关停不等后台轮次'
   'apps/api/src/channels/instagram.ts@@s/if (msg.is_echo === true || msg.is_deleted === true) continue;/if (false) continue;/@@Instagram 把自己发的回声当客人消息'
@@ -76,6 +76,13 @@ MUTATIONS=(
   'apps/api/src/channels/meta.ts@@s/const mimeType = contentType.split(";")\[0\]!.trim().toLowerCase();/const mimeType = "image\/jpeg";/@@Instagram 附件不看 content-type'
   'apps/api/src/channels/meta.ts@@s/if (!(maxBytes >= 4)) throw new Error/if (false) throw new Error/@@chunkByBytes 放过放不下一个码点的上限'
   'apps/api/src/routes/webhooks.ts@@s/ready: Boolean(secret \&\& config.INSTAGRAM_ACCESS_TOKEN)/ready: Boolean(secret)/@@Instagram 没配 token 也收消息'
+  'apps/api/src/routes/webhooks.ts@@s/if (!hook.ready) return c.json/if (false) return c.json/@@Meta webhook 没配 secret 也收消息'
+  'apps/api/src/channels/meta.ts@@s/for (const body of chunkByBytes(text, INSTAGRAM_TEXT_MAX_BYTES))/for (const body of [text])/@@Instagram 长回复不按字节拆块'
+  'apps/api/src/channels/meta.ts@@s/const { bytes, contentType } = await safeFetchBytes(url, { fetch: deps.fetch, lookup: deps.lookup, maxBytes: MEDIA_MAX_BYTES, accept: "image\/\*" });/const r = await deps.fetch(url); const bytes = Buffer.from(await r.arrayBuffer()); const contentType = r.headers.get("content-type") ?? "";/@@Instagram 附件直链不过 SSRF 护栏'
+  'apps/api/src/channels/instagram.ts@@s/if (from === entry.id) continue;/if (false) continue;/@@Instagram 店账号自己发的消息（无 is_echo）当客人'
+  'apps/api/src/channels/instagram.ts@@s/else if (passiveOnly \&\& !text) continue;/else if (false) continue;/@@Instagram 对快捷表情和 story 提及说教'
+  'apps/api/src/channels/inbound.ts@@s/return void seen.delete(ev.messageId);/return;/@@没绑店时丢掉的消息被记进去重表，绑上后重放进不来'
+  'apps/api/src/routes/webhooks.ts@@s/take(`${hook.name}:${clientIp(c)}`)/take(clientIp(c))/@@两个产品共用每 IP 预算'
 )
 
 files=()

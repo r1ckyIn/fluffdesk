@@ -54,8 +54,9 @@ export function createMetaChannel<E extends InboundEvent>(spec: MetaChannelSpec<
     seen.set(ev.messageId, true);
     const shop = await findShopByChannel(rt.shops, spec.channel, ev.accountId);
     if (!shop) {
+      // 还没绑店就来的消息（比如美容师刚接上渠道）：丢掉但不记去重，绑上之后 Meta 重投或人工重放还能进来
       console.warn(`${tag} no shop bound to account ${ev.accountId}, dropped`);
-      return;
+      return void seen.delete(ev.messageId);
     }
     // 每个客人一个预算，超了直接丢，不回话：回话也算发消息，会被刷
     if (!rt.limits.perSession.take(`${spec.channel}:${ev.from}`)) return;

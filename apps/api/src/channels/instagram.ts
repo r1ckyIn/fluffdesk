@@ -14,6 +14,8 @@ export interface InstagramEvent extends InboundEvent {
 
 const ACCOUNT_ID = /^\d{1,32}$/;
 const MID = /^[A-Za-z0-9_.:=+/-]{1,512}$/;
+/** 客人的被动动作：快捷表情、提到店的 story、分享帖子。既不是询价也不该被"只看文字和照片"说教，直接忽略 */
+const PASSIVE_ATTACHMENTS = new Set(["like_heart", "story_mention", "share", "reel", "ig_reel", "story"]);
 
 /**
  * 只认带 message 的 messaging 事件；read / reaction / postback 忽略；is_echo（自己发的）和 is_deleted 忽略。
@@ -36,6 +38,8 @@ export function parseInstagramPayload(payload: unknown): InstagramEvent[] {
       const from = item?.sender?.id;
       if (!msg || typeof msg !== "object" || typeof from !== "string" || !ACCOUNT_ID.test(from)) continue;
       if (msg.is_echo === true || msg.is_deleted === true) continue;
+      // 店自己发的消息不一定带 is_echo（没订阅 message_echoes 的应用）：发件人就是店账号的一律不当客人
+      if (from === entry.id) continue;
       if (typeof msg.mid !== "string" || !MID.test(msg.mid)) continue;
       const base = { accountId: entry.id, from, messageId: msg.mid };
       const text = typeof msg.text === "string" ? msg.text : undefined;
@@ -44,7 +48,9 @@ export function parseInstagramPayload(payload: unknown): InstagramEvent[] {
         .filter((a) => a?.type === "image" && typeof a.payload?.url === "string")
         .map((a) => a!.payload!.url as string)
         .slice(0, LIMITS.imagesPerTurn);
+      const passiveOnly = attachments.length > 0 && attachments.every((a) => typeof a?.type === "string" && PASSIVE_ATTACHMENTS.has(a.type));
       if (imageUrls.length > 0) out.push({ ...base, kind: "image", imageUrls, text });
+      else if (passiveOnly && !text) continue;
       else if (msg.is_unsupported === true || (attachments.length > 0 && !text)) out.push({ ...base, kind: "unsupported" });
       else if (text) out.push({ ...base, kind: "text", text });
     }
@@ -57,7 +63,7 @@ export function createInstagramChannel(config: Record<string, string | undefined
   return createMetaChannel<InstagramEvent>({
     channel: "instagram",
     parse: parseInstagramPayload,
-    send: (ev, text) => sendInstagramText(deps, token, ev.accountId, ev.from, text),
+    send: (ev, text) => sendInstagramText(deps, token, ev.from, text),
     fetchImages: (ev) => Promise.all((ev.imageUrls ?? []).map((url) => fetchInstagramImage(deps, url))),
   });
 }

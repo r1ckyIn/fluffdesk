@@ -1,15 +1,11 @@
 import { createMetaChannel, type InboundEvent, type MetaChannel } from "./inbound.js";
 import { fetchWhatsAppMedia, sendWhatsAppText, type MetaDeps } from "./meta.js";
 
-export { CANNED } from "./inbound.js";
-
 /**
  * WhatsApp Cloud API 适配：把 webhook payload 翻成事件，发文字，图片经 Graph 两步拉取。
- * 流水线（去重、找店、限流、兜底）在 inbound.ts，验签在路由层。
+ * accountId 就是 Meta 文档里的 phone_number_id。流水线（去重、找店、限流、兜底）在 inbound.ts，验签在路由层。
  */
 export interface WhatsAppEvent extends InboundEvent {
-  /** = accountId，留着给读代码的人对照 Meta 文档的字段名 */
-  phoneNumberId: string;
   mediaId?: string;
 }
 
@@ -30,7 +26,7 @@ export function parseWhatsAppPayload(payload: unknown): WhatsAppEvent[] {
       if (typeof phoneNumberId !== "string" || !ID.test(phoneNumberId) || !Array.isArray(value.messages)) continue;
       for (const m of value.messages as Array<Record<string, unknown> | null>) {
         if (!m || typeof m.id !== "string" || !ID.test(m.id) || typeof m.from !== "string" || !PHONE.test(m.from)) continue;
-        const base = { accountId: phoneNumberId, phoneNumberId, from: m.from, messageId: m.id };
+        const base = { accountId: phoneNumberId, from: m.from, messageId: m.id };
         if (m.type === "text") {
           const body = (m.text as { body?: unknown } | undefined)?.body;
           if (typeof body !== "string") continue;
@@ -53,7 +49,7 @@ export function createWhatsAppChannel(config: Record<string, string | undefined>
   return createMetaChannel<WhatsAppEvent>({
     channel: "whatsapp",
     parse: parseWhatsAppPayload,
-    send: (ev, text) => sendWhatsAppText(deps, token, ev.phoneNumberId, ev.from, text),
+    send: (ev, text) => sendWhatsAppText(deps, token, ev.accountId, ev.from, text),
     fetchImages: async (ev) => [await fetchWhatsAppMedia(deps, token, ev.mediaId!)],
   });
 }

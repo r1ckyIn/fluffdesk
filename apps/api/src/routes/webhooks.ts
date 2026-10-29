@@ -53,8 +53,9 @@ export function webhookRoutes(config: Record<string, string | undefined>, deps: 
     routes.post(`/${hook.name}`, async (c) => {
       const rt = c.get("rt");
       // 公网入口都有每 IP 上限（CLAUDE.md）。没签名的请求也要先读完请求体才能验签，所以限流在读体之前。
-      // 预算比聊天宽：正常来源只有 Meta 的几个出口 IP，一次投递可能带好几条消息
-      if (!rt.limits.webhookIp.take(clientIp(c))) return c.json({ error: "too many requests" }, 429);
+      // 预算比聊天宽：正常来源只有 Meta 的几个出口 IP，一次投递可能带好几条消息。
+      // 两个产品从同一批出口 IP 来，各算各的，一个产品补投积压不能把另一个挤成 429
+      if (!rt.limits.webhookIp.take(`${hook.name}:${clientIp(c)}`)) return c.json({ error: "too many requests" }, 429);
       if (!hook.ready) return c.json({ error: `${hook.name} not configured` }, 503);
       // 验签要拿原始字节算，先 text 再 parse
       const raw = await c.req.text();
