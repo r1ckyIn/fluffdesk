@@ -36,3 +36,11 @@ code-review 没法带提示词，分诊时对照这里，同一条算"重复"不
 - 复现尝试：读 `packages/core/src/shop/schema.ts` 的历史：`channels` 字段是这个 PR 新加的。schema 没开 `additionalProperties: false`，未知键能过校验原样入库，所以不能说"不可能有"；但合并前仓库里没有任何代码路径写 `channels` 键（seed 读的 shops.json、导入器的抽取器、美容师端 PUT 都没有这个字段），生产行里不会有。索引是部分索引（`is not null`），没有该键的行不参与唯一性。人已在 Neon dev 分支跑过 `npm run db:migrate`，通过
 - 为什么不成立：前提（存在重复绑定的旧数据）要求合并前有代码写过 `channels` 键，没有。以后若出现"先有数据后加唯一索引"的迁移，这条顾虑成立，到时在迁移里先 SELECT 查重
 - 复核：medium，作者一句话否决
+
+## .vercelignore 的改动没有门禁命令覆盖，部署路径没走过
+- PR / 轮次：fix/vercel-ignore-tests 第 2 轮
+- 引用的代码：`apps/web/.vercelignore` 的 `/test/` 一行
+- 审查者原文：`npm test`/`npm run typecheck` 不读 .vercelignore，`vercel build` 也不套用它，scripts/deploy-web.sh 只从干净 main 发 `--prod`，所以合并前证明不了这条修复，除非手动做预览部署并记录
+- 复现尝试：这条说的是证据缺失，不是行为 bug。第一步自证时已经做了两次 `npx vercel@65.5.0 --cwd apps/web deploy`（预览环境、远端构建）：改前同一份代码在 main 上远端构建失败（TS2307），加 `test/` 后 Ready，改成 `/test/` 后仍 Ready，两次 URL 都在 PR 证据表里
+- 为什么不成立：审查者要求的证据已经在记录里；至于"Vercel 项目 Root Directory 让 CLI 从仓库根上传"的担心，deploy-web.sh 用 `--cwd apps/web`，预览部署走的是同一条上传路径
+- 复核：medium，作者一句话否决
