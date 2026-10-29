@@ -5,13 +5,15 @@ import { shops } from "../schema.js";
 
 /**
  * schema.ts 里 shops_channel_<渠道> 的唯一索引被撞上时，驱动抛 23505；沿 cause 链找到它并翻成领域错误。
- * 索引名在约束名或报错文本里，两个驱动（postgres-js、PGlite）都能对上
+ * 只看驱动给的约束名字段（postgres-js 叫 constraint_name，PGlite 叫 constraint），不靠报错文本：
+ * 文本可能被 lc_messages 本地化或被 pooler 改写
  */
-function channelConflict(e: unknown): keyof ShopChannels | undefined {
-  for (let cur = e as { code?: unknown; constraint_name?: unknown; message?: unknown; cause?: unknown } | undefined; cur; cur = cur.cause as typeof cur) {
+export function channelConflictOf(e: unknown): keyof ShopChannels | undefined {
+  type PgErr = { code?: unknown; constraint_name?: unknown; constraint?: unknown; cause?: unknown };
+  for (let cur = e as PgErr | undefined; cur; cur = cur.cause as PgErr | undefined) {
     if (cur.code !== "23505") continue;
-    const text = `${String(cur.constraint_name ?? "")} ${String(cur.message ?? "")}`;
-    const m = /shops_channel_(whatsapp|instagram)/.exec(text);
+    const name = String(cur.constraint_name ?? cur.constraint ?? "");
+    const m = /^shops_channel_(whatsapp|instagram)$/.exec(name);
     if (m) return m[1] as keyof ShopChannels;
   }
   return undefined;
@@ -21,7 +23,7 @@ async function mapChannelConflict<T>(run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (e) {
-    const channel = channelConflict(e);
+    const channel = channelConflictOf(e);
     if (channel) throw new ChannelBindingConflictError(channel);
     throw e;
   }
