@@ -1,3 +1,11 @@
-# Vercel CLI 上传时不看 .gitignore，只看这个；别把本地环境文件传上去
+# Vercel CLI 上传时不看 .gitignore：只用它自己的内置默认表（.git、.next、.vercel、node_modules、.env.local、.env.*.local 等）加这个文件。
+# 裸 .env 不在默认表里，所以这条不能删
 .env*
 !.env.example
+# 测试只在本地和 CI 跑（vitest 在仓库根装），Vercel 单独构建 apps/web 时没有它，传上去会让 next build 的类型检查失败。
+# 目录锚定到顶层：不带 / 会连 app/test/ 这类路由目录一起丢；再按文件名挡同目录放的测试
+/test/
+*.test.ts
+*.test.tsx
+# tsc 的增量缓存（.gitignore 已排除，但 CLI 上传不看 .gitignore）：本机的状态不该当远端构建的输入
+*.tsbuildinfo

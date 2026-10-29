@@ -42,7 +42,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 
 ### 下一步的顺序（2026-10-28 定）
 1. ~~Fly 部署 api + Vercel 部署 web~~（2026-10-28 都已上线）
-2. ~~美容师端：待确认列表、一键确认/拒绝~~（2026-10-28 做完，分支 chore/taste-skill）；magic link 登录换掉共享 token 还没做，等域名（fluffdesk.eirlys.ai）和 Resend 账号
+2. ~~美容师端：待确认列表、一键确认/拒绝~~（2026-10-28 做完，分支 chore/taste-skill）；magic link 登录换掉共享 token 还没做（域名和 Resend 已于 2026-10-29 备好）
 3. Instagram 和 WhatsApp 收发消息；Meta 应用审核要排队，和第 2 步并行提交
 4. PR 级 e2e（Neon 分支）：API key 和 NEON_PROJECT_ID 已在 GitHub，等冒烟脚本
 5. 模型评审和人工打分对齐：等有真客人对话再做，对着假数据对齐没意义
@@ -86,7 +86,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 已处理列表（`?status=decided`），店铺资料编辑（`PUT /groomer/:shop/shop`，整份过 schema）
 - [x] 中英双语、手机布局（侧栏折成底栏）、tasteskill framed-sheet 壳子、Eirlys 色板和字体
 - [x] 设计系统：`packages/design/`（tokens.json 正本 → `apps/web/app/tokens.css` 和组件预览），artifact 见 docs
-- [ ] 登录（magic link，better-auth + Resend），替掉共享 token，把人绑到店；要先把 web/api 挂到 `fluffdesk.eirlys.ai` 子域（Cloudflare）让 cookie 同站
+- [ ] 登录（magic link，Resend 发信），替掉共享 token，把人绑到店。前置已齐：web/api 已挂到 `fluffdesk.eirlys.ai` / `api.fluffdesk.eirlys.ai`（cookie 同站），Resend 域名已验证
 - [ ] Web Push 通知（`web-push` + VAPID），邮件兜底（和 magic link 共用 Resend）
 - [ ] confirmed / declined 之后通知客人（web 渠道要轮询或推送；IG/WA 等渠道接入）
 - [ ] 修正报价后"重新报价"给客人（现在只记 corrections，不改预约）
@@ -106,14 +106,23 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 闲置 24 小时的会话清掉图片（表里的行和消息里内嵌的），文字历史留着
 - [ ] 会话文字历史的保留期限（产品决定，和 eval 集的需要一起定）
 - [x] Neon：本地只连 dev 分支（`.env` 的 `DATABASE_URL`）；API 用只有 DML 的 `fluffdesk_app`（`db:app-role` 用 SQL 建，控制台建的角色带 neon_superuser）。Free 档没有受保护分支，接受
-- [x] Fly secrets 已设（11 个：DATABASE_URL、MIGRATE_DATABASE_URL、ANTHROPIC_API_KEY、DEEPSEEK_API_KEY、四个 FLUFF_*_MODEL、GROOMER_API_TOKEN、WHATSAPP_VERIFY_TOKEN、WEB_ORIGIN）。`WEB_ORIGIN` 已指向 Vercel 正式域名
+- [x] Fly secrets 已设（11 个：DATABASE_URL、MIGRATE_DATABASE_URL、ANTHROPIC_API_KEY、DEEPSEEK_API_KEY、四个 FLUFF_*_MODEL、GROOMER_API_TOKEN、WHATSAPP_VERIFY_TOKEN、WEB_ORIGIN）。`WEB_ORIGIN` 已指向 https://fluffdesk.eirlys.ai（2026-10-29 切换，旧的 fluffdesk-web.vercel.app 来源不再放行）
 - [ ] PR 级 e2e：GitHub Action 每个 PR 从 production 建 Neon 分支、跑连真库的冒烟、PR 关了删分支。要项目级 API key 进 GitHub secrets、`NEON_PROJECT_ID` 做 variable；先写冒烟脚本再建 key
 - [ ] eval 对着临时 Neon 分支跑，判分直接查库的最终状态（现在查内存存储）
 - [x] `hold_booking` 查重：同会话同服务同时段已挂着就回现有的
 - [x] `fluffdesk_app` 的权限用例在 PGlite 里跑：能读写、不能 DDL、不能碰 drizzle schema、新表自动授权
 - [x] db 测试每条前清空重灌
 - [x] Fly.io 悉尼区部署 api：app `fluffdesk-api`，https://fluffdesk-api.fly.dev，1 台机器（进程内的会话锁和限流不支持多实例：`deploy:api` 用 `--ha=false`，部署前查机器数，多于 1 台就拒，要先 `flyctl scale count 1 -a fluffdesk-api`），release_command 已把迁移 0001 跑到 production；0003（渠道绑定唯一索引）已在 dev 分支跑过，合并后随发版进 production
-- [x] Vercel 部署 web：项目 `fluffdesk-web`，https://fluffdesk-web.vercel.app，根目录 `apps/web`（单独装依赖，所以 `apps/web/package.json` 要自带 typescript），环境变量 `NEXT_PUBLIC_API_URL` 指向 Fly；发版 `npm run deploy:web`
+- [x] Vercel 部署 web：项目 `fluffdesk-web`，正式域名 https://fluffdesk.eirlys.ai，根目录 `apps/web`（单独装依赖，所以 `apps/web/package.json` 要自带 typescript；`.vercelignore` 挡掉 test/ 和 *.test.ts*，不然远端 next build 的类型检查找不到 vitest），环境变量 `NEXT_PUBLIC_API_URL` = https://api.fluffdesk.eirlys.ai；发版 `npm run deploy:web`
+- [x] 子域（2026-10-29，Cloudflare 的 eirlys.ai 区，全部灰云 DNS only，现有记录没动；`*.eirlys.ai` 是橙云的 Worker 路由，显式记录覆盖它）：
+  | 名称 | 类型 | 指向 | 用途 |
+  |---|---|---|---|
+  | `fluffdesk` | CNAME | `ada5231a0754fb16.vercel-dns-017.com` | web（Vercel 项目域名，已 verified） |
+  | `api.fluffdesk` | CNAME | `gdqmwdw.fluffdesk-api.fly.dev` | api（Fly 证书 `flyctl certs add` 已 Issued；Fly 另给 A 66.241.125.110 / AAAA 2a09:8280:1::1d2:4995:0 作备选） |
+  | `resend._domainkey.fluffdesk` | TXT | `p=MIGf…`（DKIM 公钥，Resend 域名页可查） | Resend DKIM |
+  | `rsend.fluffdesk` | CNAME | `rsend-apne1.forge.rmta.net` | Resend SPF（Forge） |
+  | `send.fluffdesk` | CNAME | `send.forge.rmta.net` | Resend 发信 |
+- [x] Resend：域名 `fluffdesk.eirlys.ai` 已 Verified（东京区 ap-northeast-1，离悉尼最近的可选项；收信 MX 没加，magic link 不需要）。上线前把 API key（Sending access、限定该域名）设进 Fly：`flyctl secrets set RESEND_API_KEY=… -a fluffdesk-api`，由人在 CC 之外的终端跑，代码里只引用变量名
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比
 
 ### 付费验证（销售第二段）
