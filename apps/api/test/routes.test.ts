@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { createHmac } from "node:crypto";
 import { createModels, fauxAssistantMessage, fauxProvider, fauxText } from "@earendil-works/pi-ai";
 import { conversationKey, createGateway, defaultTools, newConversation, parseShopConfig, InMemoryBookingStore, InMemoryCalendar, InMemoryShopRepo, LIMITS, Tracer, type Conversation } from "@fluffdesk/core";
-import { chunkText, MEDIA_MAX_BYTES, verifyMetaSignature } from "../src/channels/meta.js";
+import { chunkByBytes, chunkText, MEDIA_MAX_BYTES, verifyMetaSignature } from "../src/channels/meta.js";
 import { CANNED, parseWhatsAppPayload } from "../src/channels/whatsapp.js";
+import { parseInstagramPayload } from "../src/channels/instagram.js";
 import { createApp } from "../src/app.js";
 import { createRuntime, type Runtime } from "../src/runtime.js";
 import { BoundedStore, RateLimiter } from "../src/ratelimit.js";
@@ -627,5 +628,168 @@ describe("whatsapp webhook", () => {
     const tiny = chunkText("🐶ab", 1);
     expect(tiny.join("")).toBe("🐶ab");
     expect(tiny.every((p) => p.length > 0)).toBe(true);
+  });
+});
+
+/**
+ * Instagram webhook：和 WhatsApp 共用验签、限流、去重、找店、兜底这条流水线，这里只测 Instagram 自己的部分：
+ * payload 形状（messaging[] 和 changes[]）、echo / 已删 / 回执忽略、附件直链取图（不带令牌）、发送格式、按字节拆块
+ */
+describe("instagram webhook", () => {
+  const SECRET = "ig-app-secret";
+  const IG_TOKEN = "ig-access-token";
+  const IG_GRAPH = "https://graph.instagram.test/v21.0";
+  const CDN_URL = "https://lookaside.test/ig_messaging_cdn/?asset_id=1";
+  const igShop = parseShopConfig({ ...shop, slug: "ig", channels: { instagram: { accountId: "17841400000000001" } } });
+  const igEnv = { META_APP_SECRET: SECRET, INSTAGRAM_ACCESS_TOKEN: IG_TOKEN };
+  const IGSID = "1234567890123456";
+
+  interface Call { method: string; url: string; headers: Record<string, string>; body?: string }
+  function fakeGraph(opts: { cdnStatus?: number; cdnType?: string; cdnBytes?: Uint8Array } = {}) {
+    const calls: Call[] = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      const headers = Object.fromEntries(Object.entries((init?.headers ?? {}) as Record<string, string>).map(([k, v]) => [k.toLowerCase(), v]));
+      calls.push({ method: init?.method ?? "GET", url, headers, body: typeof init?.body === "string" ? init.body : undefined });
+      if (url.endsWith("/messages")) return Response.json({ recipient_id: IGSID, message_id: "mid.out" });
+      if (url.startsWith(CDN_URL)) return new Response(opts.cdnBytes ?? new Uint8Array([7, 8, 9]), { status: opts.cdnStatus ?? 200, headers: { "content-type": opts.cdnType ?? "image/jpeg" } });
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+    return { calls, fetchImpl, sends: () => calls.filter((c) => c.method === "POST" && c.url.endsWith("/messages")) };
+  }
+  function igApp(env: Record<string, string | undefined> = igEnv, graph = fakeGraph()) {
+    const rt = testRuntime();
+    rt.shops = new InMemoryShopRepo([shop, igShop]);
+    const app = createApp(rt, env, { fetch: graph.fetchImpl, instagramGraphBase: IG_GRAPH, lookup: async () => ["93.184.216.34"] });
+    return { rt, app, graph, drain: () => rt.background.drain() };
+  }
+  const event = (message: Record<string, unknown>, extra: Record<string, unknown> = {}, accountId = "17841400000000001") => ({
+    object: "instagram",
+    entry: [{ id: accountId, time: 1700000000000, messaging: [{ sender: { id: IGSID }, recipient: { id: accountId }, timestamp: 1700000000000, ...(Object.keys(message).length ? { message } : {}), ...extra }] }],
+  });
+  const text = (t: string, mid = "mid.1") => event({ mid, text: t });
+  const sign = (raw: string) => `sha256=${createHmac("sha256", SECRET).update(raw).digest("hex")}`;
+  const signed = (payload: unknown): RequestInit => {
+    const raw = JSON.stringify(payload);
+    return { method: "POST", headers: { "content-type": "application/json", "x-hub-signature-256": sign(raw) }, body: raw };
+  };
+  const convOf = (rt: Runtime) => rt.conversations.get(`ig:instagram:${IGSID}`);
+
+  it("returns 503 unless the app secret and the instagram token are configured, 401 on a bad signature", async () => {
+    for (const env of [{}, { META_APP_SECRET: SECRET }, { INSTAGRAM_ACCESS_TOKEN: IG_TOKEN }]) {
+      expect((await igApp(env).app.request("/webhooks/instagram", signed(text("hi")))).status).toBe(503);
+    }
+    const { app, rt } = igApp();
+    expect((await app.request("/webhooks/instagram", { method: "POST", body: JSON.stringify(text("hi")) })).status).toBe(401);
+    expect(rt.background.size).toBe(0);
+    // WhatsApp 的 token 配了不等于 Instagram 配了
+    expect((await igApp({ META_APP_SECRET: SECRET, WHATSAPP_ACCESS_TOKEN: "x" }).app.request("/webhooks/instagram", signed(text("hi")))).status).toBe(503);
+  });
+  it("answers a text message through the agent and sends the reply to the IGSID via the instagram graph", async () => {
+    const { app, rt, graph, drain } = igApp();
+    expect((await app.request("/webhooks/instagram", signed(text("Hi, how much for a bath?")))).status).toBe(200);
+    await drain();
+    const conv = await convOf(rt);
+    expect(conv?.shopSlug).toBe("ig");
+    expect(conv?.channel).toBe("instagram");
+    expect(JSON.stringify(conv?.messages)).toContain("how much for a bath");
+    const sends = graph.sends();
+    expect(sends).toHaveLength(1);
+    expect(sends[0]!.url).toBe(`${IG_GRAPH}/17841400000000001/messages`);
+    expect(sends[0]!.headers.authorization).toBe(`Bearer ${IG_TOKEN}`);
+    expect(JSON.parse(sends[0]!.body!)).toEqual({ recipient: { id: IGSID }, message: { text: "hello" } });
+  });
+  it("also accepts the changes[].value shape and drops events for an account no shop is bound to", async () => {
+    const { app, rt, graph, drain } = igApp();
+    const changes = { object: "instagram", entry: [{ id: "17841400000000001", changes: [{ field: "messages", value: { sender: { id: IGSID }, recipient: { id: "17841400000000001" }, message: { mid: "mid.c", text: "via changes" } } }] }] };
+    await app.request("/webhooks/instagram", signed(changes));
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.u", text: "nobody" }, {}, "17841499999999999")));
+    await drain();
+    expect(JSON.stringify((await convOf(rt))?.messages)).toContain("via changes");
+    expect(graph.sends()).toHaveLength(1);
+  });
+  it("ignores echoes of its own messages, deleted messages, read receipts, reactions and postbacks", async () => {
+    const { app, rt, graph, drain } = igApp();
+    const echo = { object: "instagram", entry: [{ id: "17841400000000001", messaging: [{ sender: { id: "17841400000000001" }, recipient: { id: IGSID }, message: { mid: "mid.e", text: "hello", is_echo: true } }] }] };
+    await app.request("/webhooks/instagram", signed(echo));
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.d", is_deleted: true })));
+    await app.request("/webhooks/instagram", signed(event({}, { read: { mid: "mid.1" } })));
+    await app.request("/webhooks/instagram", signed(event({}, { reaction: { mid: "mid.1", action: "react", emoji: "❤️" } })));
+    await app.request("/webhooks/instagram", signed(event({}, { postback: { mid: "mid.p", title: "Yes", payload: "YES" } })));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(await rt.conversations.get("ig:instagram:17841400000000001")).toBeUndefined();
+    expect(graph.calls).toHaveLength(0);
+  });
+  it("fetches an image attachment from its CDN url without the token and hands it to the agent", async () => {
+    const { app, rt, graph, drain } = igApp();
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.i", attachments: [{ type: "image", payload: { url: CDN_URL } }] })));
+    await drain();
+    const cdn = graph.calls.find((c) => c.url.startsWith(CDN_URL));
+    expect(cdn).toBeDefined();
+    expect(cdn!.headers.authorization).toBeUndefined();
+    const conv = await convOf(rt);
+    expect([...conv!.images.values()][0]).toEqual({ data: Buffer.from([7, 8, 9]).toString("base64"), mimeType: "image/jpeg" });
+    expect(graph.sends()).toHaveLength(1);
+  });
+  it("caps attachments per turn and tolerates a failed one when another succeeds", async () => {
+    const { app, rt, graph, drain } = igApp();
+    const many = Array.from({ length: LIMITS.imagesPerTurn + 2 }, (_, i) => ({ type: "image", payload: { url: `${CDN_URL}&n=${i}` } }));
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.m", attachments: many })));
+    await drain();
+    expect(graph.calls.filter((c) => c.url.startsWith(CDN_URL))).toHaveLength(LIMITS.imagesPerTurn);
+    expect((await convOf(rt))?.images.size).toBe(LIMITS.imagesPerTurn);
+  });
+  it.each([
+    ["not an image by content-type", fakeGraph({ cdnType: "image/gif" })],
+    ["larger than the cap", fakeGraph({ cdnBytes: new Uint8Array(MEDIA_MAX_BYTES + 1) })],
+    ["unreachable", fakeGraph({ cdnStatus: 500 })],
+  ])("replies with the canned text when the attachment is %s", async (_label, graph) => {
+    const { app, rt, drain } = igApp(igEnv, graph);
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.b", attachments: [{ type: "image", payload: { url: CDN_URL } }] })));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(JSON.parse(graph.sends()[0]!.body!).message.text).toBe(CANNED.mediaFailed);
+  });
+  it("answers unsupported media (video, share, is_unsupported) with the canned text and never calls the model", async () => {
+    const { app, rt, graph, drain } = igApp();
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.v", attachments: [{ type: "video", payload: { url: "https://lookaside.test/v.mp4" } }] })));
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.s", is_unsupported: true })));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(graph.calls.filter((c) => c.method === "GET")).toHaveLength(0);
+    expect(graph.sends().map((s) => JSON.parse(s.body!).message.text)).toEqual([CANNED.unsupported, CANNED.unsupported]);
+  });
+  it("keeps the caption and lets the model answer when a video comes with text", async () => {
+    const { app, rt, graph, drain } = igApp();
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.vt", text: "this is Max", attachments: [{ type: "video", payload: { url: "https://lookaside.test/v.mp4" } }] })));
+    await drain();
+    expect(JSON.stringify((await convOf(rt))?.messages)).toContain("this is Max");
+    expect(JSON.parse(graph.sends()[0]!.body!).message.text).toBe("hello");
+  });
+  it("processes a redelivered mid only once", async () => {
+    const { app, rt, graph, drain } = igApp();
+    await app.request("/webhooks/instagram", signed(text("first")));
+    await app.request("/webhooks/instagram", signed(text("first")));
+    await drain();
+    expect((await convOf(rt))?.messages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(graph.sends()).toHaveLength(1);
+  });
+  it("parseInstagramPayload drops malformed entries", () => {
+    expect(parseInstagramPayload(null)).toEqual([]);
+    expect(parseInstagramPayload({ object: "page", entry: [] })).toEqual([]);
+    expect(parseInstagramPayload({ object: "instagram", entry: [null, { id: "not-numeric", messaging: [{ sender: { id: IGSID }, message: { mid: "m", text: "x" } }] }] })).toEqual([]);
+    expect(parseInstagramPayload({ object: "instagram", entry: [{ id: "1", messaging: [null, { sender: { id: "abc" }, message: { mid: "m", text: "x" } }, { sender: { id: IGSID }, message: { mid: "bad mid!", text: "x" } }, { sender: { id: IGSID }, message: { mid: "ok", text: "x" } }] }] }).map((e) => e.messageId)).toEqual(["ok"]);
+  });
+  it("chunkByBytes keeps every chunk within the byte budget without splitting code points", () => {
+    const zh = "宠物美容报价是一个区间，以到店评估为准。".repeat(60); // 每字 3 字节
+    const parts = chunkByBytes(zh, 950);
+    expect(parts.join("")).toBe(zh);
+    expect(parts.length).toBeGreaterThan(1);
+    for (const p of parts) expect(Buffer.byteLength(p, "utf8")).toBeLessThanOrEqual(950);
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i} ${"🐶".repeat(20)}`).join("\n");
+    const lp = chunkByBytes(lines, 300);
+    expect(lp.join("\n")).toBe(lines); // 在换行处断
+    expect(chunkByBytes("", 950)).toEqual([""]);
+    expect(() => chunkByBytes("x", 3)).toThrow(/maxBytes/);
   });
 });

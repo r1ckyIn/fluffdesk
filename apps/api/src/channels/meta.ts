@@ -10,14 +10,19 @@ export interface MetaDeps {
   fetch: typeof globalThis.fetch;
   /** 媒体 URL 的 DNS 解析，SSRF 护栏用；测试里固定成公网地址 */
   lookup?: (host: string) => Promise<string[]>;
+  /** WhatsApp Cloud API 的 Graph 地址 */
   graphBase: string;
+  /** Instagram Messaging API 的 Graph 地址：Instagram Login 路线是 graph.instagram.com，Unified Login 是 graph.facebook.com（INSTAGRAM_GRAPH_BASE 可改） */
+  instagramGraphBase: string;
 }
 
 export function metaDeps(config: Record<string, string | undefined>, overrides: Partial<MetaDeps> = {}): MetaDeps {
+  const version = config.META_GRAPH_VERSION ?? "v21.0";
   return {
     fetch: overrides.fetch ?? globalThis.fetch,
     lookup: overrides.lookup,
-    graphBase: overrides.graphBase ?? `https://graph.facebook.com/${config.META_GRAPH_VERSION ?? "v21.0"}`,
+    graphBase: overrides.graphBase ?? `https://graph.facebook.com/${version}`,
+    instagramGraphBase: overrides.instagramGraphBase ?? config.INSTAGRAM_GRAPH_BASE ?? `https://graph.instagram.com/${version}`,
   };
 }
 
@@ -52,6 +57,67 @@ export function chunkText(text: string, max = WHATSAPP_TEXT_MAX): string[] {
   }
   if (rest.length > 0 || out.length === 0) out.push(rest);
   return out;
+}
+
+/**
+ * 按 UTF-8 字节数拆块（Instagram 的上限是 1000 字节，中文一个字 3 字节）。按码点走不会切断代理对，
+ * 尽量在换行处断。maxBytes 必须放得下任意一个码点（4 字节），否则抛错，不会死循环
+ */
+export function chunkByBytes(text: string, maxBytes: number): string[] {
+  if (!(maxBytes >= 4)) throw new Error(`chunkByBytes: maxBytes must be >= 4, got ${maxBytes}`);
+  const size = (s: string) => Buffer.byteLength(s, "utf8");
+  const out: string[] = [];
+  let cur = "";
+  let curBytes = 0;
+  let lastNl = -1; // cur 里最后一个换行的下标
+  for (const ch of text) {
+    const b = size(ch);
+    if (curBytes + b > maxBytes) {
+      // 换行在后半段就在换行处断，否则硬切
+      const at = lastNl >= 0 && size(cur.slice(0, lastNl)) > maxBytes / 2 ? lastNl : cur.length;
+      out.push(cur.slice(0, at));
+      cur = cur.slice(at).replace(/^\n/, "");
+      curBytes = size(cur);
+      lastNl = cur.lastIndexOf("\n");
+    }
+    cur += ch;
+    curBytes += b;
+    if (ch === "\n") lastNl = cur.length - 1;
+  }
+  if (cur.length > 0 || out.length === 0) out.push(cur);
+  return out;
+}
+
+/** Instagram 一条文字最多 1000 字节，留点余量 */
+const INSTAGRAM_TEXT_MAX_BYTES = 950;
+
+/** Instagram Login 路线：POST /{ig-user-id}/messages，Bearer 是 Instagram 用户 token */
+export async function sendInstagramText(deps: MetaDeps, token: string, igAccountId: string, to: string, text: string): Promise<void> {
+  for (const body of chunkByBytes(text, INSTAGRAM_TEXT_MAX_BYTES)) {
+    const res = await deps.fetch(`${deps.instagramGraphBase}/${encodeURIComponent(igAccountId)}/messages`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ recipient: { id: to }, message: { text: body } }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    await res.body?.cancel().catch(() => {});
+    if (!res.ok) throw new Error(`instagram send failed: http ${res.status}`);
+  }
+}
+
+/**
+ * Instagram 的附件是 CDN 直链（lookaside），不带令牌直接取。URL 来自 Meta 的 payload，照样过 safeFetchBytes 的地址校验和字节上限；
+ * 类型只能看响应的 content-type
+ */
+export async function fetchInstagramImage(deps: MetaDeps, url: string): Promise<MediaResult> {
+  try {
+    const { bytes, contentType } = await safeFetchBytes(url, { fetch: deps.fetch, lookup: deps.lookup, maxBytes: MEDIA_MAX_BYTES, accept: "image/*" });
+    const mimeType = contentType.split(";")[0]!.trim().toLowerCase();
+    if (!IMAGE_MIME_ALLOWLIST.has(mimeType)) return { error: "type" };
+    return { data: bytes.toString("base64"), mimeType };
+  } catch (e) {
+    return { error: /larger than/.test((e as Error).message) ? "size" : "fetch" };
+  }
 }
 
 export async function sendWhatsAppText(deps: MetaDeps, token: string, phoneNumberId: string, to: string, text: string): Promise<void> {

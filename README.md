@@ -73,7 +73,8 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 ### 渠道
 - [x] 托管聊天页接口
 - [ ] 嵌入小窗（iframe 版聊天页）
-- [ ] Instagram Messaging API：验签、收消息、回消息（复用 `channels/meta.ts`）
+- [x] Instagram Messaging API：`POST /webhooks/instagram`，和 WhatsApp 共用验签、每 IP 限流、去重、找店（`channels.instagram.accountId` = 专业账号 id，即 webhook 的 `entry.id`）、兜底这条流水线（`channels/inbound.ts`）。Instagram 自己的部分：`entry[].messaging[]`（也认 Unified Login 文档里的 `changes[].value`，没用真账号验过）、echo / 已删 / 回执 / 反应 / postback 忽略、图片附件是 CDN 直链不带令牌直接取（仍过 `safeFetchBytes`）、一条最多 3 张、发送走 `INSTAGRAM_GRAPH_BASE`（默认 graph.instagram.com，Instagram Login 路线）按 1000 字节拆块
+- [ ] Instagram 上线前：`INSTAGRAM_ACCESS_TOKEN`（Instagram 用户长期 token）设进 Fly secrets，webhook 回调指到 `/webhooks/instagram` 订阅 `messages`，店铺资料加 `channels.instagram.accountId`；如果走 Unified Login 要把 `INSTAGRAM_GRAPH_BASE` 改成 graph.facebook.com 并用 System User token
 - [x] WhatsApp Cloud API：`POST /webhooks/whatsapp` 验签（`META_APP_SECRET`）、消息 id 去重 24 小时、按店铺配置 `channels.whatsapp.phoneNumberId` 找店（没绑定就丢）、每号码限流、文字和图片（经 Graph 拉取，走 `safeFetchBytes`）进 agent、回复用 `WHATSAPP_ACCESS_TOKEN` 经 Graph 发回（超 4000 字拆条）；语音等类型回固定双语话术。先回 200 再后台处理，单机进程内去重（多实例见 issue #26）
 - [ ] WhatsApp 上线前：Meta 应用建好后把 `META_APP_SECRET`、`WHATSAPP_ACCESS_TOKEN`（System User 的长期 token）设进 Fly secrets，webhook 回调指到 `/webhooks/whatsapp`，店铺资料加 `channels.whatsapp.phoneNumberId`（一个号只能绑一家店，草稿也算：迁移 0003 的部分唯一索引，PUT 冲突回 409）；`META_GRAPH_VERSION` 可选，默认 v21.0
 
@@ -97,7 +98,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 会话存储有界（5000 个、24 小时）、会话消息上限、旧图片裁掉
 - [x] 导入器防 SSRF、webhook 握手失败关闭并常数时间比较、CLI slug 校验、CORS 生产必须配、Dockerfile 非 root、CI 锁 SHA
 - [x] WhatsApp POST webhook 验签（X-Hub-Signature-256，常数时间，原始字节），没配 secret 或 token 整条路由 503；媒体 URL 当不可信输入过 SSRF 护栏，bearer 不跟重定向换主机
-- [ ] Instagram POST webhook 验签（接渠道时一起做）
+- [x] Instagram POST webhook 验签（同一个 `META_APP_SECRET`，同一段路由代码）
 
 ### 数据与部署
 - [x] runtime.ts 按 DATABASE_URL 切换到 @fluffdesk/db（Neon 悉尼区），迁移文件进仓库，部署前 release_command 跑迁移
