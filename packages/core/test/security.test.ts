@@ -105,6 +105,18 @@ describe("safeFetchBytes 防 SSRF", () => {
   it("surfaces non-2xx as an error", async () => {
     await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => new Response("no", { status: 403 })) as never, lookup: publicLookup })).rejects.toThrow(/http 403/);
   });
+  it("rejects a malformed url as a policy error, not a bare TypeError", async () => {
+    await expect(safeFetchBytes("lookaside.example/no-scheme", { fetch: (async () => bin(3)) as never, lookup: publicLookup })).rejects.toBeInstanceOf(UnsafeUrlError);
+  });
+  it("drops the bearer header when a same-host redirect downgrades https to http", async () => {
+    const seen: Array<string | undefined> = [];
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      seen.push((init?.headers as Record<string, string>)?.authorization);
+      return url === "https://a.example/one" ? new Response(null, { status: 302, headers: { location: "http://a.example/two" } }) : bin(3);
+    }) as unknown as typeof fetch;
+    await safeFetchBytes("https://a.example/one", { fetch: fetchImpl, lookup: publicLookup, headers: { authorization: "Bearer t" } });
+    expect(seen).toEqual(["Bearer t", undefined]);
+  });
 });
 
 describe("会话上限", () => {

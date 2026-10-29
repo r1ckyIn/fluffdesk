@@ -43,7 +43,10 @@ export function chunkText(text: string, max = WHATSAPP_TEXT_MAX): string[] {
   while (rest.length > max) {
     // 尽量在换行处断，没有就硬切
     const cut = rest.lastIndexOf("\n", max);
-    const at = cut > max / 2 ? cut : max;
+    let at = cut > max / 2 ? cut : max;
+    // 不把 emoji 这类代理对切成两半：切点前一位是高位代理就往前退一格
+    const before = rest.charCodeAt(at - 1);
+    if (before >= 0xd800 && before <= 0xdbff) at -= 1;
     out.push(rest.slice(0, at));
     rest = rest.slice(at).replace(/^\n/, "");
   }

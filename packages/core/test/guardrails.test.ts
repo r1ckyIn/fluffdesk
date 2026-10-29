@@ -5,6 +5,7 @@ import { defaultTools, quoteTool, identifyPetTool, holdBookingTool } from "../sr
 import { InMemoryBookingStore, InMemoryCalendar, bookingSlot } from "../src/booking/ports.js";
 import { parseDecision } from "../src/booking/decision.js";
 import { parseShopConfig, validateShopConfig } from "../src/shop/schema.js";
+import { channelBindingConflicts } from "../src/shop/repo.js";
 import { transcript } from "../src/agent/transcript.js";
 import { newConversation } from "../src/agent/loop.js";
 import { demoShop, fauxGateway } from "./fixtures.js";
@@ -207,6 +208,15 @@ describe("店铺资料的引用完整性", () => {
   it("the read path still loads a stored config with a dangling price, so the shop can be opened and repaired", () => {
     const dangling = { ...base, services: [{ ...base.services[0]!, prices: [{ ...base.services[0]!.prices[0]!, size: "giant" }] }] };
     expect(parseShopConfig(dangling).slug).toBe(base.slug);
+  });
+  it("a channel account id can be bound to one shop only; a shop's own existing binding is not a conflict", () => {
+    const a = parseShopConfig({ ...base, slug: "a", channels: { whatsapp: { phoneNumberId: "pn-1" }, instagram: { accountId: "ig-1" } } });
+    const b = parseShopConfig({ ...base, slug: "b" });
+    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { whatsapp: { phoneNumberId: "pn-1" } } }))).toEqual(["whatsapp: a"]);
+    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { instagram: { accountId: "ig-1" } } }))).toEqual(["instagram: a"]);
+    expect(channelBindingConflicts([a, b], a)).toEqual([]);
+    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { whatsapp: { phoneNumberId: "pn-2" } } }))).toEqual([]);
+    expect(channelBindingConflicts([a, b], b)).toEqual([]);
   });
 });
 

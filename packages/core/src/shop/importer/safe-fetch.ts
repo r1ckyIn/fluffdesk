@@ -119,11 +119,13 @@ export async function safeFetchBytes(raw: string, opts: SafeFetchBytesOptions = 
   const lookup = opts.lookup ?? defaultLookup;
   const maxBytes = opts.maxBytes ?? 2_000_000;
   const maxRedirects = opts.maxRedirects ?? 5;
-  const origin = new URL(raw).host;
+  let origin: string | undefined;
   let current = raw;
   for (let hop = 0; hop <= maxRedirects; hop++) {
     const u = await assertSafeUrl(current, lookup);
-    const extra = u.host === origin ? opts.headers ?? {} : {};
+    // 第一跳校验通过的 origin（协议+主机+端口）才是令牌的归属：换主机或 https 降到 http 都不带
+    origin ??= u.origin;
+    const extra = u.origin === origin ? opts.headers ?? {} : {};
     const res = await fetchImpl(u.toString(), {
       headers: { "user-agent": opts.userAgent ?? "fluffdesk/0.1 (+https://github.com/r1ckyIn/fluffdesk)", accept: opts.accept ?? "*/*", ...extra },
       signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),

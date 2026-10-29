@@ -5,8 +5,9 @@ import { conversationKey, createGateway, defaultTools, newConversation, parseSho
 import { chunkText, MEDIA_MAX_BYTES, verifyMetaSignature } from "../src/channels/meta.js";
 import { CANNED, parseWhatsAppPayload } from "../src/channels/whatsapp.js";
 import { createApp } from "../src/app.js";
-import type { Runtime } from "../src/runtime.js";
+import { createRuntime, type Runtime } from "../src/runtime.js";
 import { BoundedStore, RateLimiter } from "../src/ratelimit.js";
+import { BackgroundTasks } from "../src/background.js";
 import { MemoryConversationStore, MemoryCorrectionStore } from "../src/memory.js";
 import { handleInbound } from "../src/channels/base.js";
 import { verifyTokenMatches } from "../src/routes/webhooks.js";
@@ -36,7 +37,8 @@ function testRuntime(): Runtime {
     bookings,
     corrections: new MemoryCorrectionStore(),
     traceSinks: [],
-    limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000), groomerIp: new RateLimiter(100, 60_000), groomerAuth: new RateLimiter(5, 60_000), groomerAuthAll: new RateLimiter(7, 60_000) },
+    limits: { perIp: new RateLimiter(5, 60_000), perSession: new RateLimiter(3, 60_000), groomerIp: new RateLimiter(100, 60_000), groomerAuth: new RateLimiter(5, 60_000), groomerAuthAll: new RateLimiter(7, 60_000), webhookIp: new RateLimiter(20, 60_000) },
+    background: new BackgroundTasks(),
     newTracer: (id) => new Tracer(id),
     calendarFor: () => new InMemoryCalendar(() => null),
     tools: defaultTools(),
@@ -207,6 +209,19 @@ describe("groomer routes", () => {
     expect((await jsonOf(await app.request("/groomer/s1/shop", { headers: auth }))).shop.phone).toBe("02 9000 0000");
     expect((await app.request("/groomer/nope/shop", { ...json({ ...shop, slug: "nope" }, auth), method: "PUT" })).status).toBe(404);
   });
+  it("refuses to bind a channel account id that another shop already uses", async () => {
+    const rt = testRuntime();
+    const other = parseShopConfig({ ...shop, slug: "other", channels: { whatsapp: { phoneNumberId: "pn-taken" }, instagram: { accountId: "ig-taken" } } });
+    rt.shops = new InMemoryShopRepo([shop, other]);
+    const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
+    const put = (body: unknown) => app.request("/groomer/s1/shop", { ...json(body, auth), method: "PUT" });
+    expect((await put({ ...shop, channels: { whatsapp: { phoneNumberId: "pn-taken" } } })).status).toBe(409);
+    expect((await put({ ...shop, channels: { instagram: { accountId: "ig-taken" } } })).status).toBe(409);
+    expect((await rt.shops.get("s1"))?.channels).toBeUndefined(); // 两次都没写
+    expect((await put({ ...shop, channels: { whatsapp: { phoneNumberId: "pn-free" } } })).status).toBe(200);
+    // 自己已经绑着的 id 再提交一次不算冲突
+    expect((await put({ ...shop, channels: { whatsapp: { phoneNumberId: "pn-free" } }, name: "S1 again" })).status).toBe(200);
+  });
   it("corrections are built from named fields, not the raw body", async () => {
     const rt = testRuntime();
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
@@ -356,13 +371,12 @@ describe("whatsapp webhook", () => {
     return { calls, fetchImpl, sends: () => calls.filter((c) => c.method === "POST" && c.url.endsWith("/messages")) };
   }
 
-  function waApp(env: Record<string, string | undefined> = waEnv, graph = fakeGraph()) {
+  function waApp(env: Record<string, string | undefined> = waEnv, graph = fakeGraph(), lookup = async () => ["93.184.216.34"]) {
     const rt = testRuntime();
     rt.shops = new InMemoryShopRepo([shop, waShop]);
-    const pending: Promise<void>[] = [];
-    const app = createApp(rt, env, { fetch: graph.fetchImpl, graphBase: GRAPH, lookup: async () => ["93.184.216.34"], track: (p) => void pending.push(p) });
-    const drain = async () => { await Promise.all(pending); };
-    return { rt, app, graph, drain, pending };
+    const app = createApp(rt, env, { fetch: graph.fetchImpl, graphBase: GRAPH, lookup });
+    const drain = () => rt.background.drain();
+    return { rt, app, graph, drain, pending: () => rt.background.size };
   }
 
   const message = (m: Record<string, unknown>, phoneNumberId = "pn-1") => ({
@@ -389,7 +403,7 @@ describe("whatsapp webhook", () => {
     for (const env of [{}, { META_APP_SECRET: SECRET }, { WHATSAPP_ACCESS_TOKEN: WA_TOKEN }]) {
       const { app, pending } = waApp(env);
       expect((await app.request("/webhooks/whatsapp", signed(text("hi")))).status).toBe(503);
-      expect(pending).toHaveLength(0);
+      expect(pending()).toBe(0);
     }
   });
   it("rejects a missing or wrong signature before touching the payload", async () => {
@@ -399,7 +413,7 @@ describe("whatsapp webhook", () => {
     expect((await app.request("/webhooks/whatsapp", signed(text("hi"), "wrong-secret"))).status).toBe(401);
     // 签名对的是另一个请求体
     expect((await app.request("/webhooks/whatsapp", { method: "POST", headers: { "x-hub-signature-256": sign(raw) }, body: raw + " " })).status).toBe(401);
-    expect(pending).toHaveLength(0);
+    expect(pending()).toBe(0);
     expect(graph.calls).toHaveLength(0);
   });
   it("returns 400 for a signed body that is not json", async () => {
@@ -481,13 +495,9 @@ describe("whatsapp webhook", () => {
     expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.mediaFailed);
   });
   it("refuses to download media from a url that resolves to a private address", async () => {
-    const graph = fakeGraph();
-    const rt = testRuntime();
-    rt.shops = new InMemoryShopRepo([waShop]);
-    const pending: Promise<void>[] = [];
-    const app = createApp(rt, waEnv, { fetch: graph.fetchImpl, graphBase: GRAPH, lookup: async () => ["10.0.0.9"], track: (p) => void pending.push(p) });
+    const { app, rt, graph, drain } = waApp(waEnv, fakeGraph(), async () => ["10.0.0.9"]);
     await app.request("/webhooks/whatsapp", signed(message({ type: "image", image: { id: "media-1" } })));
-    await Promise.all(pending);
+    await drain();
     expect(graph.calls.some((c) => c.url === MEDIA_URL)).toBe(false);
     expect(await convOf(rt)).toBeUndefined();
     expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.mediaFailed);
@@ -509,10 +519,54 @@ describe("whatsapp webhook", () => {
     expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.unsupported);
   });
   it("drops messages beyond the per-session budget without replying", async () => {
-    const { app, graph, drain } = waApp();
+    const { app, rt, graph, drain } = waApp();
+    rt.limits.perSession = new RateLimiter(3, 60_000);
     for (let i = 0; i < 5; i++) await app.request("/webhooks/whatsapp", signed(text(`m${i}`, `wamid.${i}`)));
     await drain();
-    expect(graph.sends().length).toBeLessThan(5); // testRuntime 的 perSession 预算很小
+    expect(graph.sends()).toHaveLength(3); // 预算 3 条：之后的既不跑模型也不回话
+  });
+  it("rate-limits the webhook per client ip before reading the body", async () => {
+    const { app, rt } = waApp();
+    rt.limits.webhookIp = new RateLimiter(2, 60_000);
+    const unsigned = { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.9" }, body: JSON.stringify(text("hi")) } as RequestInit;
+    expect((await app.request("/webhooks/whatsapp", unsigned)).status).toBe(401);
+    expect((await app.request("/webhooks/whatsapp", unsigned)).status).toBe(401);
+    expect((await app.request("/webhooks/whatsapp", unsigned)).status).toBe(429);
+    // 另一个 IP 不受影响
+    expect((await app.request("/webhooks/whatsapp", { ...unsigned, headers: { ...(unsigned.headers as Record<string, string>), "x-forwarded-for": "203.0.113.10" } })).status).toBe(401);
+  });
+  it("rt.close() waits for background turns so a deploy does not lose a message after the 200", async () => {
+    const graph = fakeGraph();
+    const slowSend = graph.fetchImpl;
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/messages")) await new Promise((r) => setTimeout(r, 30));
+      return slowSend(url, init);
+    }) as unknown as typeof fetch;
+    // 用真的 createRuntime（内存模式）拿它的 close 接线，只换掉网关和店铺
+    const real = createRuntime({});
+    const faux = testRuntime();
+    const rt: Runtime = { ...real, gateway: faux.gateway, shops: new InMemoryShopRepo([shop, waShop]), conversations: faux.conversations, traceSinks: [], newTracer: faux.newTracer };
+    const app = createApp(rt, waEnv, { fetch: fetchImpl, graphBase: GRAPH, lookup: async () => ["93.184.216.34"] });
+    expect((await app.request("/webhooks/whatsapp", signed(text("hi")))).status).toBe(200);
+    expect(rt.background.size).toBe(1);
+    await rt.close();
+    expect(graph.sends()).toHaveLength(1);
+    expect(rt.background.size).toBe(0);
+  });
+  it("tells the customer and forgets the message id when processing fails, so a redelivery can succeed", async () => {
+    const { app, rt, graph, drain } = waApp();
+    const shops = rt.shops;
+    let fail = true;
+    rt.shops = { ...shops, list: async () => { if (fail) throw new Error("neon hiccup"); return shops.list(); } } as typeof shops;
+    await app.request("/webhooks/whatsapp", signed(text("hi")));
+    await drain();
+    expect(await convOf(rt)).toBeUndefined();
+    expect(JSON.parse(graph.sends()[0]!.body!).text.body).toBe(CANNED.failed);
+    fail = false;
+    await app.request("/webhooks/whatsapp", signed(text("hi")));
+    await drain();
+    expect((await convOf(rt))?.messages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(JSON.parse(graph.sends()[1]!.body!).text.body).toBe("hello");
   });
   it("strips NUL bytes and caps the text before it reaches the agent", async () => {
     const { app, rt, drain } = waApp();
@@ -542,5 +596,12 @@ describe("whatsapp webhook", () => {
     expect(parts.every((p) => p.length <= 4000)).toBe(true);
     expect(parts.length).toBeGreaterThan(1);
     expect(chunkText("x".repeat(9000), 4000).map((p) => p.length)).toEqual([4000, 4000, 1000]);
+  });
+  it("chunkText never splits a surrogate pair", () => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    const s = "x".repeat(3999) + "🐶" + "y".repeat(10);
+    const parts = chunkText(s, 4000);
+    expect(parts.join("")).toBe(s);
+    for (const p of parts) expect(p).not.toMatch(lone);
   });
 });

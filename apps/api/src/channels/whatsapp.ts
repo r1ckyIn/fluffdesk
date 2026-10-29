@@ -58,6 +58,7 @@ export function parseWhatsAppPayload(payload: unknown): WhatsAppEvent[] {
 export const CANNED = {
   unsupported: "I can only read text and photos here. Please send a message or a photo of your pet.\n这里只能看文字和照片，请发文字或宠物的照片。",
   mediaFailed: "I couldn't load that photo. Please try again with a smaller JPEG, PNG or WebP.\n这张照片没读出来，请换一张小一点的 JPEG、PNG 或 WebP 再发。",
+  failed: "Sorry, something went wrong on our side. Please send that again in a moment, or the groomer will get back to you.\n抱歉，我们这边出了点问题。请稍后再发一次，或者等美容师回复您。",
 } as const;
 
 export interface WhatsAppChannel {
@@ -106,7 +107,17 @@ export function createWhatsAppChannel(config: Record<string, string | undefined>
   return {
     async handle(rt, payload) {
       for (const ev of parseWhatsAppPayload(payload)) {
-        await one(rt, ev).catch((e: unknown) => console.error(`[whatsapp] message ${ev.messageId} failed: ${(e as Error).message}`));
+        try {
+          await one(rt, ev);
+        } catch (e) {
+          // 库、模型或 Graph 抖一下不能变成静默丢消息：Meta 已经拿到 200 不会重发。
+          // 把 id 从去重表里拿掉（人工重放或 Meta 的重试还能进来），再尽力告诉客人一声
+          console.error(`[whatsapp] message ${ev.messageId} failed: ${(e as Error).message}`);
+          seen.delete(ev.messageId);
+          await sendWhatsAppText(deps, token, ev.phoneNumberId, ev.from, CANNED.failed).catch((e2: unknown) =>
+            console.error(`[whatsapp] could not notify ${ev.messageId}: ${(e2 as Error).message}`),
+          );
+        }
       }
     },
   };

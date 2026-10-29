@@ -54,12 +54,17 @@ MUTATIONS=(
   'apps/api/src/channels/meta.ts@@s/return expected.length === provided.length \&\& timingSafeEqual(expected, provided);/return true;/@@Meta webhook 验签放行'
   'apps/api/src/routes/webhooks.ts@@s/if (!whatsappReady) return c.json/if (false) return c.json/@@WhatsApp 没配 secret 或 token 也收消息'
   'apps/api/src/channels/whatsapp.ts@@s/if (seen.get(ev.messageId)) return;/if (false) return;/@@WhatsApp 重发的消息处理两次'
-  'packages/core/src/shop/repo.ts@@s/return id === accountId;/return true;/@@按渠道找店不比对账号 id'
+  'packages/core/src/shop/repo.ts@@s/channelAccountId(s, channel) === accountId/true/@@按渠道找店不比对账号 id'
   'apps/api/src/channels/whatsapp.ts@@s/if (!rt.limits.perSession.take(`whatsapp:${ev.from}`)) return;/if (false) return;/@@WhatsApp 每号码没有限流'
   'apps/api/src/channels/meta.ts@@s/if (!IMAGE_MIME_ALLOWLIST.has(mimeType)) return { error: "type" };/if (false) return { error: "type" };/@@WhatsApp 图片不看类型'
   'apps/api/src/channels/meta.ts@@s/if (typeof meta.file_size === "number" \&\& meta.file_size > MEDIA_MAX_BYTES)/if (false)/@@WhatsApp 图片元数据超大也去下载'
   'packages/core/src/shop/importer/safe-fetch.ts@@s/if (truncated) throw new Error/if (false) throw new Error/@@二进制抓取超上限不报错只截断'
-  'packages/core/src/shop/importer/safe-fetch.ts@@s/const extra = u.host === origin ? opts.headers ?? {} : {};/const extra = opts.headers ?? {};/@@bearer 跟着重定向换主机'
+  'packages/core/src/shop/importer/safe-fetch.ts@@s/const extra = u.origin === origin ? opts.headers ?? {} : {};/const extra = opts.headers ?? {};/@@bearer 跟着重定向换主机'
+  'apps/api/src/channels/whatsapp.ts@@s/!PHONE.test(m.from)/false/@@WhatsApp 发件号码不校验格式'
+  'apps/api/src/routes/groomer.ts@@s/if (conflicts.length > 0) return c.json/if (false) return c.json/@@渠道账号能绑到第二家店'
+  'apps/api/src/routes/webhooks.ts@@s/if (!rt.limits.webhookIp.take(clientIp(c)))/if (false)/@@webhook 没有每 IP 上限'
+  'apps/api/src/channels/whatsapp.ts@@s/seen.delete(ev.messageId);//@@处理失败的消息 id 留在去重表里，重放进不来'
+  'apps/api/src/runtime.ts@@s/await background.drain();//@@关停不等后台轮次'
 )
 
 files=()

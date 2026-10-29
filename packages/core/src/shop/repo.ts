@@ -42,10 +42,29 @@ export class InMemoryShopRepo implements ShopRepo, ShopEditor {
 export async function findShopByChannel(repo: ShopRepo, channel: keyof ShopChannels, accountId: string): Promise<ShopConfig | undefined> {
   if (!accountId) return undefined;
   const shops = await repo.list();
-  return shops.find((s) => {
-    const binding = s.channels?.[channel];
-    if (!binding) return false;
-    const id = channel === "whatsapp" ? (binding as { phoneNumberId: string }).phoneNumberId : (binding as { accountId: string }).accountId;
-    return id === accountId;
-  });
+  return shops.find((s) => channelAccountId(s, channel) === accountId);
+}
+
+const CHANNELS = ["whatsapp", "instagram"] as const satisfies ReadonlyArray<keyof ShopChannels>;
+
+function channelAccountId(shop: ShopConfig, channel: keyof ShopChannels): string | undefined {
+  const binding = shop.channels?.[channel];
+  if (!binding) return undefined;
+  return channel === "whatsapp" ? (binding as { phoneNumberId: string }).phoneNumberId : (binding as { accountId: string }).accountId;
+}
+
+/**
+ * 写边界用：一个渠道账号只能绑一家店，否则消息会路由到先匹配到的那家。
+ * 返回和别的店冲突的渠道（"whatsapp: <slug>"），空数组表示可以写。自己已有的绑定不算冲突
+ */
+export function channelBindingConflicts(existing: ShopConfig[], config: ShopConfig): string[] {
+  const out: string[] = [];
+  for (const channel of CHANNELS) {
+    const id = channelAccountId(config, channel);
+    if (!id) continue;
+    for (const other of existing) {
+      if (other.slug !== config.slug && channelAccountId(other, channel) === id) out.push(`${channel}: ${other.slug}`);
+    }
+  }
+  return out;
 }

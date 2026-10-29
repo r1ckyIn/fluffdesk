@@ -9,6 +9,7 @@ import {
 import { createDb, PgBookingStore, PgConversationStore, PgCorrectionStore, PgShopRepo, pgTraceSink } from "@fluffdesk/db";
 import { MemoryConversationStore, MemoryCorrectionStore } from "./memory.js";
 import { RateLimiter } from "./ratelimit.js";
+import { BackgroundTasks } from "./background.js";
 
 /**
  * 进程级依赖。路由和渠道层只认这里的接口。
@@ -26,7 +27,9 @@ export interface Runtime {
    * perIp / perSession 是公网聊天的预算。美容师端一次操作就十来个请求，不能和它共用：
    * groomerIp 给已鉴权的正常使用，groomerAuth 只数鉴权失败，猜令牌的那条路还是窄的
    */
-  limits: { perIp: RateLimiter; perSession: RateLimiter; groomerIp: RateLimiter; groomerAuth: RateLimiter; groomerAuthAll: RateLimiter };
+  limits: { perIp: RateLimiter; perSession: RateLimiter; groomerIp: RateLimiter; groomerAuth: RateLimiter; groomerAuthAll: RateLimiter; webhookIp: RateLimiter };
+  /** 回了响应还在跑的活（渠道 webhook 的模型轮次）；close() 先等它们跑完 */
+  background: BackgroundTasks;
   traceSinks: TraceSink[];
   newTracer(conversationId: string): Tracer;
   calendarFor(shop: ShopConfig): InMemoryCalendar;
@@ -45,10 +48,17 @@ export function createRuntime(env: Record<string, string | undefined> = process.
   const url = env.DATABASE_URL;
   if (!url && env.NODE_ENV === "production") throw new Error("DATABASE_URL must be set in production");
   const persistence = url ? pgPersistence(url) : memoryPersistence();
+  const background = new BackgroundTasks();
   return {
     gateway: createGateway(),
     ...persistence,
-    limits: { perIp: new RateLimiter(60, 60_000), perSession: new RateLimiter(20, 60_000), groomerIp: new RateLimiter(600, 60_000), groomerAuth: new RateLimiter(10, 60_000), groomerAuthAll: new RateLimiter(100, 60_000) },
+    // 关停：先等后台轮次把会话存完、回复发出，再关连接池
+    close: async () => {
+      await background.drain();
+      await persistence.close();
+    },
+    background,
+    limits: { perIp: new RateLimiter(60, 60_000), perSession: new RateLimiter(20, 60_000), groomerIp: new RateLimiter(600, 60_000), groomerAuth: new RateLimiter(10, 60_000), groomerAuthAll: new RateLimiter(100, 60_000), webhookIp: new RateLimiter(600, 60_000) },
     newTracer: (id) => new Tracer(id, persistence.traceSinks),
     // 日历 = 营业时间减掉已确认的预约：美容师点了确认，agent 和替代时段选择器就都看不到那个空档了
     calendarFor: (shop) =>

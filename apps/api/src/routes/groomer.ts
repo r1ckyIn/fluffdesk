@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
-  BookingStateError, DecisionInputError, findService, parseDecision, transcript, validateShopConfig,
+  BookingStateError, DecisionInputError, channelBindingConflicts, findService, parseDecision, transcript, validateShopConfig,
   type BookingStatus, type Correction,
 } from "@fluffdesk/core";
 import type { AppEnv } from "../app.js";
@@ -161,6 +161,9 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }
+    // 渠道账号 id 跨店唯一，否则另一家店的客人会被路由到这里
+    const conflicts = channelBindingConflicts(await c.get("rt").shops.list(), config);
+    if (conflicts.length > 0) return c.json({ error: `channel already bound to another shop: ${conflicts.join(", ")}` }, 409);
     const saved = await c.get("rt").shops.save(config);
     if (!saved) return c.json({ error: "not found" }, 404);
     return c.json({ shop: config });
