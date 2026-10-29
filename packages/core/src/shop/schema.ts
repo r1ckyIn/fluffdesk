@@ -63,6 +63,16 @@ export const ShopSource = Type.Object({
 });
 export type ShopSource = Static<typeof ShopSource>;
 
+/**
+ * 渠道绑定：Meta 的 webhook 只带账号 id（WhatsApp 的 phone_number_id、Instagram 的专业账号 id），
+ * 靠这里把一条进来的消息对到店。没绑定的渠道收到消息就丢掉，不会落到别的店
+ */
+export const ShopChannels = Type.Object({
+  whatsapp: Type.Optional(Type.Object({ phoneNumberId: Type.String({ minLength: 1 }) })),
+  instagram: Type.Optional(Type.Object({ accountId: Type.String({ minLength: 1 }) })),
+});
+export type ShopChannels = Static<typeof ShopChannels>;
+
 export const ShopConfig = Type.Object({
   slug: Type.String({ pattern: "^[a-z0-9-]+$" }),
   name: Type.String(),
@@ -81,6 +91,7 @@ export const ShopConfig = Type.Object({
     notes: Type.Optional(I18nText),
   }),
   sources: Type.Optional(Type.Array(ShopSource)),
+  channels: Type.Optional(ShopChannels),
 });
 export type ShopConfig = Static<typeof ShopConfig>;
 

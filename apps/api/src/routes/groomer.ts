@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
-  BookingStateError, DecisionInputError, findService, parseDecision, transcript, validateShopConfig,
+  BookingStateError, ChannelBindingConflictError, DecisionInputError, findService, parseDecision, transcript, validateShopConfig,
   type BookingStatus, type Correction,
 } from "@fluffdesk/core";
 import type { AppEnv } from "../app.js";
@@ -161,7 +161,14 @@ export function groomerRoutes(env: Record<string, string | undefined>): Hono<App
     } catch (e) {
       return c.json({ error: (e as Error).message }, 400);
     }
-    const saved = await c.get("rt").shops.save(config);
+    let saved: boolean;
+    try {
+      saved = await c.get("rt").shops.save(config);
+    } catch (e) {
+      // 渠道账号 id 跨店唯一由存储层保证（含草稿、并发写）。回话里不说是哪家店占着：别让人拿这个接口枚举谁拥有哪个号
+      if (e instanceof ChannelBindingConflictError) return c.json({ error: `${e.channel} account already bound to another shop` }, 409);
+      throw e;
+    }
     if (!saved) return c.json({ error: "not found" }, 404);
     return c.json({ shop: config });
   });

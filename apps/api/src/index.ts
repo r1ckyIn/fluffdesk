@@ -10,10 +10,10 @@ const server = serve({ fetch: app.fetch, port }, (info) => {
 });
 
 /**
- * Fly 停机先发 SIGTERM：停收新连接，等在飞的请求跑完（模型已经调了，会话还没存），再关连接池。
- * 等不到就硬退，上限要比 fly.toml 的 kill_timeout 短。
+ * Fly 停机先发 SIGTERM：停收新连接，等在飞的请求和后台的渠道轮次跑完（模型已经调了，会话还没存），再关连接池。
+ * 等不到就硬退，上限要比 fly.toml 的 kill_timeout 短；一轮模型十几秒，所以留 25 秒
  */
-const SHUTDOWN_GRACE_MS = 10_000;
+const SHUTDOWN_GRACE_MS = 25_000;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
     const deadline = setTimeout(() => {

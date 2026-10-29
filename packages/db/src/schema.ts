@@ -8,14 +8,26 @@ import type { Booking, BookingStatus, Conversation, Correction, PetSummary, Shop
  */
 
 /** 店铺：slug 就是主键，配置整份存 jsonb，schema 在 core 里校验，这里不拆列 */
-export const shops = pgTable("shops", {
-  slug: text("slug").primaryKey(),
-  config: jsonb("config").$type<ShopConfig>().notNull(),
-  /** 美容师确认过的配置才会设为 true；导入器生成的草稿是 false，agent 看不到 */
-  approved: boolean("approved").notNull().default(false),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const shops = pgTable(
+  "shops",
+  {
+    slug: text("slug").primaryKey(),
+    config: jsonb("config").$type<ShopConfig>().notNull(),
+    /** 美容师确认过的配置才会设为 true；导入器生成的草稿是 false，agent 看不到 */
+    approved: boolean("approved").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // 一个渠道账号只能绑一家店（草稿也算），否则消息会路由到先匹配到的那家。索引名被 PgShopRepo 用来认冲突
+  (t) => [
+    uniqueIndex("shops_channel_whatsapp")
+      .on(sql`(${t.config}->'channels'->'whatsapp'->>'phoneNumberId')`)
+      .where(sql`${t.config}->'channels'->'whatsapp'->>'phoneNumberId' is not null`),
+    uniqueIndex("shops_channel_instagram")
+      .on(sql`(${t.config}->'channels'->'instagram'->>'accountId')`)
+      .where(sql`${t.config}->'channels'->'instagram'->>'accountId' is not null`),
+  ],
+);
 
 export const conversations = pgTable(
   "conversations",

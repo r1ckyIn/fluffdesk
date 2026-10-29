@@ -5,10 +5,10 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import { count, eq, sql } from "drizzle-orm";
-import { parseShopConfig, Tracer, ATTR, type Conversation } from "@fluffdesk/core";
+import { ChannelBindingConflictError, parseShopConfig, Tracer, ATTR, type Conversation } from "@fluffdesk/core";
 import * as schema from "../src/schema.js";
 import type { Db } from "../src/client.js";
-import { PgShopRepo } from "../src/stores/shops.js";
+import { channelConflictOf, PgShopRepo } from "../src/stores/shops.js";
 import { PgConversationStore } from "../src/stores/conversations.js";
 import { PgBookingStore } from "../src/stores/bookings.js";
 import { PgCorrectionStore } from "../src/stores/corrections.js";
@@ -101,6 +101,31 @@ describe("PgShopRepo", () => {
     expect(await shops.get("dup")).toBeUndefined();
     const s1 = shopConfig("s1");
     await expect(shops.save({ ...s1, services: [{ ...s1.services[0]!, prices: [{ ...s1.services[0]!.prices[0]!, size: "giant" }] }] })).rejects.toThrow(/unknown size tier/);
+  });
+  it("a channel account id can be bound to one shop only, drafts included, on both write paths", async () => {
+    const bound = (slug: string, phoneNumberId: string) => ({ ...shopConfig(slug), channels: { whatsapp: { phoneNumberId } } });
+    expect(await shops.save(bound("s1", "pn-1"))).toBe(true);
+    // 另一家已确认的店走 save 或 upsert 都进不来，原样留着；错误里说清是哪个渠道
+    await expect(shops.save(bound("s2", "pn-1"))).rejects.toMatchObject({ channel: "whatsapp" });
+    await expect(shops.upsert(bound("s2", "pn-1"), { approved: true })).rejects.toMatchObject({ channel: "whatsapp" });
+    expect((await shops.get("s2"))?.channels).toBeUndefined();
+    // 草稿也占号：导入器写进来的草稿绑了号，已确认的店就不能再绑同一个
+    await shops.upsert({ ...shopConfig("draft"), channels: { instagram: { accountId: "ig-1" } } }, { approved: false });
+    await expect(shops.save({ ...shopConfig("s2"), channels: { instagram: { accountId: "ig-1" } } })).rejects.toMatchObject({ channel: "instagram" });
+    // 自己重存、换别的 id、不同渠道同一个字符串都可以
+    expect(await shops.save({ ...bound("s1", "pn-1"), name: "S1 again" })).toBe(true);
+    expect(await shops.save(bound("s2", "pn-2"))).toBe(true);
+    expect(await shops.save({ ...bound("s2", "pn-2"), channels: { whatsapp: { phoneNumberId: "pn-2" }, instagram: { accountId: "pn-1" } } })).toBe(true);
+  });
+  it("recognises the violated channel index from the driver's constraint field alone, without relying on the message text", () => {
+    // postgres-js 给 constraint_name，PGlite 给 constraint；报错文本可能被本地化或被 pooler 改写，不能只靠它
+    expect(channelConflictOf({ code: "23505", constraint: "shops_channel_instagram", message: "duplicate key" })).toBe("instagram");
+    expect(channelConflictOf({ code: "23505", constraint_name: "shops_channel_whatsapp", message: "duplicate key" })).toBe("whatsapp");
+    expect(channelConflictOf(new Error("wrapped", { cause: { code: "23505", constraint: "shops_channel_whatsapp" } }))).toBe("whatsapp");
+    // 别的唯一约束、别的错误码都不是渠道冲突
+    expect(channelConflictOf({ code: "23505", constraint: "shops_pkey", message: 'duplicate key value violates unique constraint "shops_pkey"' })).toBeUndefined();
+    expect(channelConflictOf({ code: "23503", constraint: "shops_channel_whatsapp" })).toBeUndefined();
+    expect(channelConflictOf(new Error("plain"))).toBeUndefined();
   });
 });
 

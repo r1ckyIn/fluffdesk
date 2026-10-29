@@ -21,6 +21,19 @@ export interface SafeFetchResult {
   url: string;
 }
 
+export interface SafeFetchBytesOptions extends SafeFetchOptions {
+  /** 请求头 accept，默认任意 */
+  accept?: string;
+  /** 额外请求头（比如 Graph API 的 bearer）。只发给第一跳和同主机的重定向，换了主机就不带，令牌不能跟着重定向跑 */
+  headers?: Record<string, string>;
+}
+
+export interface SafeFetchBytesResult {
+  bytes: Buffer;
+  contentType: string;
+  url: string;
+}
+
 export class UnsafeUrlError extends Error {
   constructor(url: string, reason: string) {
     super(`refusing to fetch ${url}: ${reason}`);
@@ -92,16 +105,56 @@ export async function safeFetchHtml(raw: string, opts: SafeFetchOptions = {}): P
       await res.body?.cancel().catch(() => {});
       throw new Error(res.ok ? `not html: ${current}` : `http ${res.status} for ${current}`);
     }
-    return { html: await readCapped(res, maxBytes), url: u.toString() };
+    return { html: new TextDecoder().decode((await readCapped(res, maxBytes)).bytes), url: u.toString() };
   }
   throw new UnsafeUrlError(raw, `more than ${maxRedirects} redirects`);
 }
 
-async function readCapped(res: Response, maxBytes: number): Promise<string> {
-  if (!res.body) return "";
+/**
+ * 同一套护栏抓二进制（渠道收到的图片）。和 HTML 版的差别：超过上限不是截断而是报错，半张图没用；
+ * 响应类型不限。URL 是第三方（Meta）返回的，照样当不可信输入过地址校验
+ */
+export async function safeFetchBytes(raw: string, opts: SafeFetchBytesOptions = {}): Promise<SafeFetchBytesResult> {
+  const fetchImpl = opts.fetch ?? globalThis.fetch;
+  const lookup = opts.lookup ?? defaultLookup;
+  const maxBytes = opts.maxBytes ?? 2_000_000;
+  const maxRedirects = opts.maxRedirects ?? 5;
+  let origin: string | undefined;
+  let current = raw;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    const u = await assertSafeUrl(current, lookup);
+    // 第一跳校验通过的 origin（协议+主机+端口）才是令牌的归属：换主机或 https 降到 http 都不带
+    origin ??= u.origin;
+    const extra = u.origin === origin ? opts.headers ?? {} : {};
+    const res = await fetchImpl(u.toString(), {
+      headers: { "user-agent": opts.userAgent ?? "fluffdesk/0.1 (+https://github.com/r1ckyIn/fluffdesk)", accept: opts.accept ?? "*/*", ...extra },
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 15_000),
+      redirect: "manual",
+    });
+    if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel().catch(() => {});
+      const loc = res.headers.get("location");
+      if (!loc) throw new UnsafeUrlError(current, `redirect without location`);
+      current = new URL(loc, u).toString();
+      continue;
+    }
+    if (!res.ok) {
+      await res.body?.cancel().catch(() => {});
+      throw new Error(`http ${res.status} for ${current}`);
+    }
+    const { bytes, truncated } = await readCapped(res, maxBytes);
+    if (truncated) throw new Error(`response larger than ${maxBytes} bytes: ${current}`);
+    return { bytes, contentType: res.headers.get("content-type") ?? "", url: u.toString() };
+  }
+  throw new UnsafeUrlError(raw, `more than ${maxRedirects} redirects`);
+}
+
+async function readCapped(res: Response, maxBytes: number): Promise<{ bytes: Buffer; truncated: boolean }> {
+  if (!res.body) return { bytes: Buffer.alloc(0), truncated: false };
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let truncated = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -109,9 +162,10 @@ async function readCapped(res: Response, maxBytes: number): Promise<string> {
     if (total > maxBytes) {
       await reader.cancel().catch(() => {});
       chunks.push(value.subarray(0, value.byteLength - (total - maxBytes)));
+      truncated = true;
       break;
     }
     chunks.push(value);
   }
-  return new TextDecoder().decode(Buffer.concat(chunks));
+  return { bytes: Buffer.concat(chunks), truncated };
 }

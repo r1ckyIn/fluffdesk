@@ -58,6 +58,10 @@ export class BoundedStore<V> {
     }
   }
 
+  delete(key: string): void {
+    this.items.delete(key);
+  }
+
   get size(): number {
     return this.items.size;
   }

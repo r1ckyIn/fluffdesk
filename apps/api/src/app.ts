@@ -6,7 +6,7 @@ import type { ShopConfig } from "@fluffdesk/core";
 import { createRuntime, type Runtime } from "./runtime.js";
 import { chatRoutes } from "./routes/chat.js";
 import { groomerRoutes } from "./routes/groomer.js";
-import { webhookRoutes } from "./routes/webhooks.js";
+import { webhookRoutes, type WebhookDeps } from "./routes/webhooks.js";
 
 /** shop 只在 /groomer/:shop/* 的中间件里设，别处没有 */
 export type AppEnv = { Variables: { rt: Runtime; shop?: ShopConfig } };
@@ -14,7 +14,8 @@ export type AppEnv = { Variables: { rt: Runtime; shop?: ShopConfig } };
 /** 请求体上限：一轮最多 3 张图，每张 base64 2MB，再留点余量 */
 const BODY_LIMIT_BYTES = 7 * 1024 * 1024;
 
-export function createApp(runtime?: Runtime, env: Record<string, string | undefined> = process.env) {
+/** deps 只给 webhook 用：出网的 fetch 和后台任务的跟踪，测试里换掉 */
+export function createApp(runtime?: Runtime, env: Record<string, string | undefined> = process.env, deps: WebhookDeps = {}) {
   const rt = runtime ?? createRuntime(env);
   const origin = env.WEB_ORIGIN;
   // 生产环境必须指定前端来源；没配就起不来，不能默认放开
@@ -37,6 +38,6 @@ export function createApp(runtime?: Runtime, env: Record<string, string | undefi
   app.get("/health", async (c) => c.json({ ok: true, shops: (await rt.shops.list()).map((s) => s.slug) }));
   app.route("/chat", chatRoutes);
   app.route("/groomer", groomerRoutes(env));
-  app.route("/webhooks", webhookRoutes(env));
+  app.route("/webhooks", webhookRoutes(env, deps));
   return app;
 }

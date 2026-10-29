@@ -28,3 +28,21 @@
 - 当时怎么处理：PR #1 修（vitest alias 指向 src）；chore/taste-skill#1 修（--check 只比对提交进仓库的 apps/web/app/tokens.css，dist 存在才比）
 - 建议写到哪：test-review 第 10 条旁边加一条"CI 里跑的脚本不能依赖 gitignore 的产物（dist/、.next/、node_modules 以外的生成文件）；本地绿 CI 红的第一嫌疑就是它"；或 CLAUDE.md 测试纪律一行
 - 决定：
+
+## 新加的公网入口没带每 IP 上限
+- 状态：待审
+- 出现：PR #1 security（2026-10-27）；feat/whatsapp-channel#1（2026-10-29）
+- 原文：
+  - PR #1：聊天接口没有每 IP 和每会话限流（README"安全"一节记为已修）
+  - feat/whatsapp-channel#1：`apps/api/src/routes/webhooks.ts:45` 公网 `POST /webhooks/whatsapp` 没有每 IP 限流，和别的公网入口不一致；没签名的请求也要先读完最多 7MB 的请求体再 401，违反 CLAUDE.md"公网进来的东西都有上限……每 IP 和每会话请求频率"
+- 当时怎么处理：PR #1 修（perIp / perSession）；feat/whatsapp-channel#1 修（`limits.webhookIp`，读请求体之前先限，变异脚本加一条）
+- 建议写到哪：security.test.ts 加一条"每个挂在 app 上的公网 POST 路由都要在读请求体之前过某个 RateLimiter"的契约测试（枚举路由表），或 CLAUDE.md 护栏一句"新路由先接限流再读 body"；也可进 pr-review 的高风险路径说明
+- 决定：
+
+## /pr-review 的分诊档位和内置 /code-review 的产出对不上
+- 状态：待审
+- 出现：feat/whatsapp-channel#1（2026-10-29）
+- 原文：`.claude/skills/pr-review/SKILL.md` 第三步按 code-review 的 high / important / 其余 分诊；Claude Code 内置 `/code-review` 的产出（ReportFindings）只有 level（跑的力度）、每条的 category、failure_scenario 和跑了核实才有的 verdict（CONFIRMED / PLAUSIBLE），按严重度排序但不标档位。本轮回来的 8 条连 category 和 verdict 都没带，级别是作者按内容定的
+- 当时怎么处理：按内容定级（correctness 且有明确丢消息/错店后果的定 important，小 bug 定 medium 按二十行规则修，效率和整理类记 issue），记录文件里写明"审查者未标级别"
+- 建议写到哪：pr-review 第三步加一段映射：有 verdict 时 CONFIRMED → important、PLAUSIBLE → 其余；没有时 category 为 correctness → important，efficiency / simplification / reuse → 其余；两者都没有时作者按内容定并在记录里注明
+- 决定：

@@ -114,4 +114,4 @@ export { importWebsite } from "./website.js";
 export { importScreenshots } from "./screenshots.js";
 export { importGoogleBusiness, mapHours } from "./google.js";
 export { htmlToText, extractLinks } from "./html.js";
-export { safeFetchHtml, isPrivateAddress, UnsafeUrlError } from "./safe-fetch.js";
+export { safeFetchHtml, safeFetchBytes, isPrivateAddress, UnsafeUrlError } from "./safe-fetch.js";

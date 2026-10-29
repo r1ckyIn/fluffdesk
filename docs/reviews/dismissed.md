@@ -28,3 +28,11 @@ code-review 没法带提示词，分诊时对照这里，同一条算"重复"不
 - 复现尝试：读两处代码，都调同一个 `validateShopConfig`，它是输入的纯函数且 schema parse 幂等，路由那次通过后仓库那次拿的是同一对象，不可能失败
 - 为什么不成立：路由那次是为了给 400 文案；仓库那次是 `ShopEditor` 端口（`packages/core/src/shop/repo.ts`，美容师端唯一的写口）的防御性校验，`save` 现在只有这个路由一个调用方；seed 走 `PgShopRepo.upsert`，有自己的那次；导入器只写 JSON 文件，不进库。不是给别的调用方兜底。成本可忽略。若将来两处换成不同的校验器，这条要重审
 - 复核：low，作者一句话否决
+
+## 迁移 0003 建唯一索引前不查重复数据，有重复会让 release_command 失败
+- PR / 轮次：feat/whatsapp-channel 第 3 轮
+- 引用的代码：`packages/db/migrations/0003_shops_channel_unique.sql` 的两条 `CREATE UNIQUE INDEX "shops_channel_whatsapp" ... WHERE ... is not null` / `"shops_channel_instagram" ...`
+- 审查者原文：`packages/db/migrations/0003_shops_channel_unique.sql:1` 建索引没有数据预检，生产已有重复绑定（含过期草稿）会让 Fly 的 release_command 抛 23505，部署中止且仓库里没有补救脚本
+- 复现尝试：读 `packages/core/src/shop/schema.ts` 的历史：`channels` 字段是这个 PR 新加的。schema 没开 `additionalProperties: false`，未知键能过校验原样入库，所以不能说"不可能有"；但合并前仓库里没有任何代码路径写 `channels` 键（seed 读的 shops.json、导入器的抽取器、美容师端 PUT 都没有这个字段），生产行里不会有。索引是部分索引（`is not null`），没有该键的行不参与唯一性。人已在 Neon dev 分支跑过 `npm run db:migrate`，通过
+- 为什么不成立：前提（存在重复绑定的旧数据）要求合并前有代码写过 `channels` 键，没有。以后若出现"先有数据后加唯一索引"的迁移，这条顾虑成立，到时在迁移里先 SELECT 查重
+- 复核：medium，作者一句话否决

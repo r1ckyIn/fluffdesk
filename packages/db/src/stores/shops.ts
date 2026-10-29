@@ -1,7 +1,33 @@
 import { and, asc, eq, or, sql } from "drizzle-orm";
-import { parseShopConfig, validateShopConfig, type ShopConfig, type ShopEditor, type ShopRepo } from "@fluffdesk/core";
+import { ChannelBindingConflictError, parseShopConfig, validateShopConfig, type ShopChannels, type ShopConfig, type ShopEditor, type ShopRepo } from "@fluffdesk/core";
 import type { Db } from "../client.js";
 import { shops } from "../schema.js";
+
+/**
+ * schema.ts 里 shops_channel_<渠道> 的唯一索引被撞上时，驱动抛 23505；沿 cause 链找到它并翻成领域错误。
+ * 只看驱动给的约束名字段（postgres-js 叫 constraint_name，PGlite 叫 constraint），不靠报错文本：
+ * 文本可能被 lc_messages 本地化或被 pooler 改写
+ */
+export function channelConflictOf(e: unknown): keyof ShopChannels | undefined {
+  type PgErr = { code?: unknown; constraint_name?: unknown; constraint?: unknown; cause?: unknown };
+  for (let cur = e as PgErr | undefined; cur; cur = cur.cause as PgErr | undefined) {
+    if (cur.code !== "23505") continue;
+    const name = String(cur.constraint_name ?? cur.constraint ?? "");
+    const m = /^shops_channel_(whatsapp|instagram)$/.exec(name);
+    if (m) return m[1] as keyof ShopChannels;
+  }
+  return undefined;
+}
+
+async function mapChannelConflict<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    const channel = channelConflictOf(e);
+    if (channel) throw new ChannelBindingConflictError(channel);
+    throw e;
+  }
+}
 
 /** 只回 approved 的店：草稿在美容师确认前 agent 看不到 */
 export class PgShopRepo implements ShopRepo, ShopEditor {
@@ -21,14 +47,16 @@ export class PgShopRepo implements ShopRepo, ShopEditor {
     return rows.map((r) => parseShopConfig(r.config));
   }
 
-  /** 美容师端改资料：只改已确认的店，草稿和不存在的店回 false。整份覆盖，先过 core 的 schema 和引用检查 */
+  /** 美容师端改资料：只改已确认的店，草稿和不存在的店回 false。整份覆盖，先过 core 的 schema 和引用检查；渠道账号撞上别家店抛 ChannelBindingConflictError */
   async save(config: ShopConfig): Promise<boolean> {
     const cfg = validateShopConfig(config);
-    const rows = await this.db
-      .update(shops)
-      .set({ config: cfg, updatedAt: new Date() })
-      .where(and(eq(shops.slug, cfg.slug), eq(shops.approved, true)))
-      .returning({ slug: shops.slug });
+    const rows = await mapChannelConflict(() =>
+      this.db
+        .update(shops)
+        .set({ config: cfg, updatedAt: new Date() })
+        .where(and(eq(shops.slug, cfg.slug), eq(shops.approved, true)))
+        .returning({ slug: shops.slug }),
+    );
     return rows.length > 0;
   }
 
@@ -39,15 +67,17 @@ export class PgShopRepo implements ShopRepo, ShopEditor {
    */
   async upsert(config: unknown, opts: { approved: boolean }): Promise<{ config: ShopConfig; written: boolean }> {
     const cfg = validateShopConfig(config);
-    const rows = await this.db
-      .insert(shops)
-      .values({ slug: cfg.slug, config: cfg, approved: opts.approved })
-      .onConflictDoUpdate({
-        target: shops.slug,
-        set: { config: cfg, approved: opts.approved, updatedAt: new Date() },
-        setWhere: or(eq(shops.approved, false), sql`excluded.approved`),
-      })
-      .returning({ slug: shops.slug });
+    const rows = await mapChannelConflict(() =>
+      this.db
+        .insert(shops)
+        .values({ slug: cfg.slug, config: cfg, approved: opts.approved })
+        .onConflictDoUpdate({
+          target: shops.slug,
+          set: { config: cfg, approved: opts.approved, updatedAt: new Date() },
+          setWhere: or(eq(shops.approved, false), sql`excluded.approved`),
+        })
+        .returning({ slug: shops.slug }),
+    );
     return { config: cfg, written: rows.length > 0 };
   }
 }

@@ -73,8 +73,9 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 ### 渠道
 - [x] 托管聊天页接口
 - [ ] 嵌入小窗（iframe 版聊天页）
-- [ ] Instagram Messaging API：验签、收消息、回消息
-- [ ] WhatsApp Cloud API：同上
+- [ ] Instagram Messaging API：验签、收消息、回消息（复用 `channels/meta.ts`）
+- [x] WhatsApp Cloud API：`POST /webhooks/whatsapp` 验签（`META_APP_SECRET`）、消息 id 去重 24 小时、按店铺配置 `channels.whatsapp.phoneNumberId` 找店（没绑定就丢）、每号码限流、文字和图片（经 Graph 拉取，走 `safeFetchBytes`）进 agent、回复用 `WHATSAPP_ACCESS_TOKEN` 经 Graph 发回（超 4000 字拆条）；语音等类型回固定双语话术。先回 200 再后台处理，单机进程内去重（多实例见 issue #26）
+- [ ] WhatsApp 上线前：Meta 应用建好后把 `META_APP_SECRET`、`WHATSAPP_ACCESS_TOKEN`（System User 的长期 token）设进 Fly secrets，webhook 回调指到 `/webhooks/whatsapp`，店铺资料加 `channels.whatsapp.phoneNumberId`（一个号只能绑一家店，草稿也算：迁移 0003 的部分唯一索引，PUT 冲突回 409）；`META_GRAPH_VERSION` 可选，默认 v21.0
 
 ### 美容师端（PWA）
 - [x] 过渡期登录：店铺 id + 名字 + 共享 `GROOMER_API_TOKEN` 存本机浏览器，401 自动退出
@@ -95,7 +96,8 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] 聊天接口：请求体 7MB 上限、图片数量/类型/大小校验、sessionId 格式、每 IP 和每会话限流、错误不外泄
 - [x] 会话存储有界（5000 个、24 小时）、会话消息上限、旧图片裁掉
 - [x] 导入器防 SSRF、webhook 握手失败关闭并常数时间比较、CLI slug 校验、CORS 生产必须配、Dockerfile 非 root、CI 锁 SHA
-- [ ] WhatsApp / Instagram POST webhook 验签（接渠道时一起做）
+- [x] WhatsApp POST webhook 验签（X-Hub-Signature-256，常数时间，原始字节），没配 secret 或 token 整条路由 503；媒体 URL 当不可信输入过 SSRF 护栏，bearer 不跟重定向换主机
+- [ ] Instagram POST webhook 验签（接渠道时一起做）
 
 ### 数据与部署
 - [x] runtime.ts 按 DATABASE_URL 切换到 @fluffdesk/db（Neon 悉尼区），迁移文件进仓库，部署前 release_command 跑迁移
@@ -109,7 +111,7 @@ npm run import -- --slug fenny-and-jacks --website <url> --google "<店名>" --s
 - [x] `hold_booking` 查重：同会话同服务同时段已挂着就回现有的
 - [x] `fluffdesk_app` 的权限用例在 PGlite 里跑：能读写、不能 DDL、不能碰 drizzle schema、新表自动授权
 - [x] db 测试每条前清空重灌
-- [x] Fly.io 悉尼区部署 api：app `fluffdesk-api`，https://fluffdesk-api.fly.dev，1 台机器（进程内的会话锁和限流不支持多实例：`deploy:api` 用 `--ha=false`，部署前查机器数，多于 1 台就拒，要先 `flyctl scale count 1 -a fluffdesk-api`），release_command 已把迁移 0001 跑到 production
+- [x] Fly.io 悉尼区部署 api：app `fluffdesk-api`，https://fluffdesk-api.fly.dev，1 台机器（进程内的会话锁和限流不支持多实例：`deploy:api` 用 `--ha=false`，部署前查机器数，多于 1 台就拒，要先 `flyctl scale count 1 -a fluffdesk-api`），release_command 已把迁移 0001 跑到 production；0003（渠道绑定唯一索引）已在 dev 分支跑过，合并后随发版进 production
 - [x] Vercel 部署 web：项目 `fluffdesk-web`，https://fluffdesk-web.vercel.app，根目录 `apps/web`（单独装依赖，所以 `apps/web/package.json` 要自带 typescript），环境变量 `NEXT_PUBLIC_API_URL` 指向 Fly；发版 `npm run deploy:web`
 - [ ] 第二家模型（DeepSeek）跑一遍同一测试集做对比
 
