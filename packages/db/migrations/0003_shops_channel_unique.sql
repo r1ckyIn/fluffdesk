@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "shops_channel_whatsapp" ON "shops" USING btree (("config"->'channels'->'whatsapp'->>'phoneNumberId')) WHERE "shops"."config"->'channels'->'whatsapp'->>'phoneNumberId' is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "shops_channel_instagram" ON "shops" USING btree (("config"->'channels'->'instagram'->>'accountId')) WHERE "shops"."config"->'channels'->'instagram'->>'accountId' is not null;

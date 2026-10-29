@@ -211,11 +211,13 @@ describe("groomer routes", () => {
   });
   it("refuses to bind a channel account id that another shop already uses", async () => {
     const rt = testRuntime();
-    const other = parseShopConfig({ ...shop, slug: "other", channels: { whatsapp: { phoneNumberId: "pn-taken" }, instagram: { accountId: "ig-taken" } } });
-    rt.shops = new InMemoryShopRepo([shop, other]);
+    const rival = parseShopConfig({ ...shop, slug: "rival", channels: { whatsapp: { phoneNumberId: "pn-taken" }, instagram: { accountId: "ig-taken" } } });
+    rt.shops = new InMemoryShopRepo([shop, rival]);
     const app = createApp(rt, { GROOMER_API_TOKEN: TOKEN });
     const put = (body: unknown) => app.request("/groomer/s1/shop", { ...json(body, auth), method: "PUT" });
-    expect((await put({ ...shop, channels: { whatsapp: { phoneNumberId: "pn-taken" } } })).status).toBe(409);
+    const conflict = await put({ ...shop, channels: { whatsapp: { phoneNumberId: "pn-taken" } } });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.text()).not.toContain("rival"); // 不把占着这个号的店是谁说出去
     expect((await put({ ...shop, channels: { instagram: { accountId: "ig-taken" } } })).status).toBe(409);
     expect((await rt.shops.get("s1"))?.channels).toBeUndefined(); // 两次都没写
     expect((await put({ ...shop, channels: { whatsapp: { phoneNumberId: "pn-free" } } })).status).toBe(200);
@@ -555,9 +557,10 @@ describe("whatsapp webhook", () => {
   });
   it("tells the customer and forgets the message id when processing fails, so a redelivery can succeed", async () => {
     const { app, rt, graph, drain } = waApp();
-    const shops = rt.shops;
     let fail = true;
-    rt.shops = { ...shops, list: async () => { if (fail) throw new Error("neon hiccup"); return shops.list(); } } as typeof shops;
+    // 只换 list 这一个方法，原型上的 get/save 留着
+    const list = rt.shops.list.bind(rt.shops);
+    rt.shops.list = async () => { if (fail) throw new Error("neon hiccup"); return list(); };
     await app.request("/webhooks/whatsapp", signed(text("hi")));
     await drain();
     expect(await convOf(rt)).toBeUndefined();
@@ -567,6 +570,23 @@ describe("whatsapp webhook", () => {
     await drain();
     expect((await convOf(rt))?.messages.filter((m) => m.role === "user")).toHaveLength(1);
     expect(JSON.parse(graph.sends()[1]!.body!).text.body).toBe("hello");
+  });
+  it("keeps the message id when the failure happens after the turn was saved, so a replay does not re-run the model", async () => {
+    const graph = fakeGraph();
+    let sends = 0;
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      // 第一次发回复时 Graph 挂了，后面都正常
+      if (url.endsWith("/messages") && ++sends === 1) return new Response("down", { status: 500 });
+      return graph.fetchImpl(url, init);
+    }) as unknown as typeof fetch;
+    const { app, rt, drain } = waApp(waEnv, { ...graph, fetchImpl });
+    await app.request("/webhooks/whatsapp", signed(text("hi")));
+    await drain();
+    expect((await convOf(rt))?.messages.filter((m) => m.role === "user")).toHaveLength(1); // 轮次已经存了
+    expect(JSON.parse(graph.sends().at(-1)!.body!).text.body).toBe(CANNED.failed); // 还是告诉了客人
+    await app.request("/webhooks/whatsapp", signed(text("hi")));
+    await drain();
+    expect((await convOf(rt))?.messages.filter((m) => m.role === "user")).toHaveLength(1); // 重放不再跑模型
   });
   it("strips NUL bytes and caps the text before it reaches the agent", async () => {
     const { app, rt, drain } = waApp();
@@ -603,5 +623,9 @@ describe("whatsapp webhook", () => {
     const parts = chunkText(s, 4000);
     expect(parts.join("")).toBe(s);
     for (const p of parts) expect(p).not.toMatch(lone);
+    // 退格不能退到 0：max=1 且开头就是代理对时仍要前进（否则死循环）
+    const tiny = chunkText("🐶ab", 1);
+    expect(tiny.join("")).toBe("🐶ab");
+    expect(tiny.every((p) => p.length > 0)).toBe(true);
   });
 });

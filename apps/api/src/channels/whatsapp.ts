@@ -101,7 +101,14 @@ export function createWhatsAppChannel(config: Record<string, string | undefined>
     }
     if (!text && images.length === 0) return;
     const result = await handleInbound(rt, { shop, channel: "whatsapp", externalId: ev.from, input: { text: text || undefined, images } });
-    if (result.reply) await reply(result.reply);
+    if (!result.reply) return;
+    try {
+      await reply(result.reply);
+    } catch (e) {
+      // 轮次已经存了，只是回复没发出去：id 留在去重表里（重放不能再跑一次模型），尽力告诉客人
+      console.error(`[whatsapp] reply for ${ev.messageId} not delivered: ${(e as Error).message}`);
+      await reply(CANNED.failed).catch((e2: unknown) => console.error(`[whatsapp] could not notify ${ev.messageId}: ${(e2 as Error).message}`));
+    }
   }
 
   return {
@@ -110,7 +117,7 @@ export function createWhatsAppChannel(config: Record<string, string | undefined>
         try {
           await one(rt, ev);
         } catch (e) {
-          // 库、模型或 Graph 抖一下不能变成静默丢消息：Meta 已经拿到 200 不会重发。
+          // 到这里的都是轮次存下来之前的失败（找店、拉图、模型、存库）：Meta 已经拿到 200 不会重发，不能静默丢。
           // 把 id 从去重表里拿掉（人工重放或 Meta 的重试还能进来），再尽力告诉客人一声
           console.error(`[whatsapp] message ${ev.messageId} failed: ${(e as Error).message}`);
           seen.delete(ev.messageId);

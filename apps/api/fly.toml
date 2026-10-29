@@ -9,8 +9,8 @@ primary_region = "syd"
 [deploy]
   release_command = "node packages/db/dist/migrate.js"
 
-# 停机给在飞的请求留时间，比 index.ts 的 SHUTDOWN_GRACE_MS 长
-kill_timeout = "15s"
+# 停机给在飞的请求和后台的渠道轮次留时间，比 index.ts 的 SHUTDOWN_GRACE_MS（25s）长
+kill_timeout = "30s"
 
 [http_service]
   internal_port = 8787

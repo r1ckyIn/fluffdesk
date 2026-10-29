@@ -5,7 +5,7 @@ import { defaultTools, quoteTool, identifyPetTool, holdBookingTool } from "../sr
 import { InMemoryBookingStore, InMemoryCalendar, bookingSlot } from "../src/booking/ports.js";
 import { parseDecision } from "../src/booking/decision.js";
 import { parseShopConfig, validateShopConfig } from "../src/shop/schema.js";
-import { channelBindingConflicts } from "../src/shop/repo.js";
+import { channelBindingConflicts, ChannelBindingConflictError, InMemoryShopRepo } from "../src/shop/repo.js";
 import { transcript } from "../src/agent/transcript.js";
 import { newConversation } from "../src/agent/loop.js";
 import { demoShop, fauxGateway } from "./fixtures.js";
@@ -212,11 +212,19 @@ describe("店铺资料的引用完整性", () => {
   it("a channel account id can be bound to one shop only; a shop's own existing binding is not a conflict", () => {
     const a = parseShopConfig({ ...base, slug: "a", channels: { whatsapp: { phoneNumberId: "pn-1" }, instagram: { accountId: "ig-1" } } });
     const b = parseShopConfig({ ...base, slug: "b" });
-    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { whatsapp: { phoneNumberId: "pn-1" } } }))).toEqual(["whatsapp: a"]);
-    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { instagram: { accountId: "ig-1" } } }))).toEqual(["instagram: a"]);
+    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { whatsapp: { phoneNumberId: "pn-1" } } }))).toEqual([{ channel: "whatsapp", slug: "a" }]);
+    expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { instagram: { accountId: "ig-1" } } }))).toEqual([{ channel: "instagram", slug: "a" }]);
     expect(channelBindingConflicts([a, b], a)).toEqual([]);
     expect(channelBindingConflicts([a, b], parseShopConfig({ ...base, slug: "b", channels: { whatsapp: { phoneNumberId: "pn-2" } } }))).toEqual([]);
     expect(channelBindingConflicts([a, b], b)).toEqual([]);
+  });
+  it("the in-memory editor refuses a conflicting binding with the typed error and leaves the shop untouched", async () => {
+    const a = parseShopConfig({ ...base, slug: "a", channels: { whatsapp: { phoneNumberId: "pn-1" } } });
+    const b = parseShopConfig({ ...base, slug: "b", name: "B" });
+    const repo = new InMemoryShopRepo([a, b]);
+    await expect(repo.save({ ...b, channels: { whatsapp: { phoneNumberId: "pn-1" } } })).rejects.toBeInstanceOf(ChannelBindingConflictError);
+    expect((await repo.get("b"))?.channels).toBeUndefined();
+    expect(await repo.save({ ...a, name: "A again" })).toBe(true); // 自己的绑定不冲突
   });
 });
 
