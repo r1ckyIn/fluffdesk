@@ -1,3 +1,5 @@
 # Vercel CLI 上传时不看 .gitignore，只看这个；别把本地环境文件传上去
 .env*
 !.env.example
+# 测试只在本地和 CI 跑（vitest 在仓库根装），Vercel 单独构建 apps/web 时没有它，传上去会让 next build 的类型检查失败
+test/
