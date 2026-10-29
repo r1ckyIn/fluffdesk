@@ -41,6 +41,14 @@ code-review 没法带提示词，分诊时对照这里，同一条算"重复"不
 - PR / 轮次：fix/vercel-ignore-tests 第 2 轮
 - 引用的代码：`apps/web/.vercelignore` 的 `/test/` 一行
 - 审查者原文：`npm test`/`npm run typecheck` 不读 .vercelignore，`vercel build` 也不套用它，scripts/deploy-web.sh 只从干净 main 发 `--prod`，所以合并前证明不了这条修复，除非手动做预览部署并记录
-- 复现尝试：这条说的是证据缺失，不是行为 bug。第一步自证时已经做了两次 `npx vercel@65.5.0 --cwd apps/web deploy`（预览环境、远端构建）：改前同一份代码在 main 上远端构建失败（TS2307），加 `test/` 后 Ready，改成 `/test/` 后仍 Ready，两次 URL 都在 PR 证据表里
+- 复现尝试：这条说的是证据缺失，不是行为 bug。每个改了 .vercelignore 的提交之后都做了一次 `npx vercel@65.5.0 --cwd apps/web deploy`（预览环境、远端构建），共三次：改前同一份代码在 main 上远端构建失败（TS2307），加 `test/` 后 Ready，改成 `/test/` 后 Ready，加 `*.test.ts*`/`*.tsbuildinfo` 后仍 Ready，三个 URL 都在 PR 证据表里
 - 为什么不成立：审查者要求的证据已经在记录里；至于"Vercel 项目 Root Directory 让 CLI 从仓库根上传"的担心，deploy-web.sh 用 `--cwd apps/web`，预览部署走的是同一条上传路径
+- 复核：medium，作者一句话否决
+
+## 否决条目引用的预览部署早于第 2 轮的修复提交
+- PR / 轮次：fix/vercel-ignore-tests 第 3 轮
+- 引用的代码：`apps/web/.vercelignore` 的 `*.test.ts`、`*.test.tsx`、`*.tsbuildinfo` 三行
+- 审查者原文：上一条否决引用的两次预览部署都早于这个提交，新加的三条模式从没上传到 Vercel 过，引用的证据覆盖不了它要否决的发现
+- 复现尝试：第 2 轮修复提交（4d2d375）之后又做了第三次预览部署，远端构建 Ready；审查者看不到仓库外的记录文件，而 dismissed.md 当时写的"两次"是旧数
+- 为什么不成立：证据存在，只是文档没跟上；本提交把上一条的措辞改成三次。规矩本身（每个改上传范围的提交都要走一次部署路径）这次是照做的
 - 复核：medium，作者一句话否决
