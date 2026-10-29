@@ -68,7 +68,7 @@ MUTATIONS=(
   'apps/api/src/channels/meta.ts@@s/if (before >= 0xd800 \&\& before <= 0xdbff \&\& at > 1) at -= 1;/if (false) at -= 1;/@@chunkText 切断代理对'
   'apps/api/src/channels/inbound.ts@@s/await reply(CANNED.failed).catch/await Promise.resolve().catch/@@回复发不出去时不告诉客人'
   'apps/api/src/routes/webhooks.ts@@s/if (!rt.limits.webhookIp.take(/if (false \&\& rt.limits.webhookIp.take(/@@webhook 没有每 IP 上限'
-  'apps/api/src/channels/inbound.ts@@s/seen.delete(ev.messageId);//@@处理失败的消息 id 留在去重表里，重放进不来'
+  'apps/api/src/channels/inbound.ts@@s/^          seen.delete(ev.messageId);$//@@处理失败的消息 id 留在去重表里，重放进不来'
   'apps/api/src/runtime.ts@@s/await background.drain();//@@关停不等后台轮次'
   'apps/api/src/channels/instagram.ts@@s/if (msg.is_echo === true || msg.is_deleted === true) continue;/if (false) continue;/@@Instagram 把自己发的回声当客人消息'
   'apps/api/src/channels/instagram.ts@@s/else if (msg.is_unsupported === true || (attachments.length > 0 \&\& !text))/else if (false)/@@Instagram 不支持的附件静默丢掉'
@@ -83,6 +83,8 @@ MUTATIONS=(
   'apps/api/src/channels/instagram.ts@@s/else if (passiveOnly \&\& !text) continue;/else if (false) continue;/@@Instagram 对快捷表情和 story 提及说教'
   'apps/api/src/channels/inbound.ts@@s/return void seen.delete(ev.messageId);/return;/@@没绑店时丢掉的消息被记进去重表，绑上后重放进不来'
   'apps/api/src/routes/webhooks.ts@@s/take(`${hook.name}:${clientIp(c)}`)/take(clientIp(c))/@@两个产品共用每 IP 预算'
+  'apps/api/src/channels/meta.ts@@s/if (!GRAPH_VERSION.test(version)) throw new Error/if (false) throw new Error/@@META_GRAPH_VERSION 笔误不拦'
+  'apps/api/src/channels/meta.ts@@s# || u.search || u.hash##@@INSTAGRAM_GRAPH_BASE 带 query 或 fragment 也放行'
 )
 
 files=()

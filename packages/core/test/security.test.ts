@@ -102,6 +102,10 @@ describe("safeFetchBytes 防 SSRF", () => {
     expect(ok.bytes.length).toBe(1000);
     expect(ok.contentType).toBe("image/jpeg");
   });
+  it("the typed errors carry their class name, so logs and serialised traces can tell them apart", () => {
+    expect(new ResponseTooLargeError("https://x.example/a", 10).name).toBe("ResponseTooLargeError");
+    expect(new UnsafeUrlError("https://x.example/a", "why").name).toBe("UnsafeUrlError");
+  });
   it("surfaces non-2xx as an error", async () => {
     await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => new Response("no", { status: 403 })) as never, lookup: publicLookup })).rejects.toThrow(/http 403/);
   });

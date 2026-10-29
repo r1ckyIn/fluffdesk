@@ -16,8 +16,12 @@ export interface MetaDeps {
   instagramGraphBase: string;
 }
 
+/** Graph 的版本段，两个产品的地址都靠它拼；"v21.0/"、整个 URL 这类笔误会拼出坏地址，启动时就拦 */
+const GRAPH_VERSION = /^v\d+\.\d+$/;
+
 export function metaDeps(config: Record<string, string | undefined>, overrides: Partial<MetaDeps> = {}): MetaDeps {
   const version = config.META_GRAPH_VERSION ?? "v21.0";
+  if (!GRAPH_VERSION.test(version)) throw new Error(`META_GRAPH_VERSION must look like v21.0, got "${version}"`);
   return {
     fetch: overrides.fetch ?? globalThis.fetch,
     lookup: overrides.lookup,
@@ -26,17 +30,21 @@ export function metaDeps(config: Record<string, string | undefined>, overrides: 
   };
 }
 
-/** 配置里的 Graph 地址要是完整的 https URL（含版本），裸主机这类笔误在启动时就报，不能到每次回复才 fetch 失败 */
+/**
+ * 配置里的 Instagram Graph 地址只能是 https 的 origin 加版本段（`https://host/v21.0`，尾斜杠可有可无）。
+ * 裸主机、没版本、带 query/fragment/凭据、把整个端点填进来，这些笔误都在启动时报，不能到每次回复才 fetch 失败或把 bearer 发去别处
+ */
 function instagramGraphBaseFrom(raw: string | undefined, version: string): string {
   if (!raw) return `https://graph.instagram.com/${version}`;
-  let u: URL | undefined;
+  const hint = `INSTAGRAM_GRAPH_BASE must be https://<host>/${version} (origin + version only), got "${raw}"`;
+  let u: URL;
   try {
     u = new URL(raw);
   } catch {
-    u = undefined;
+    throw new Error(hint);
   }
-  if (!u || u.protocol !== "https:") throw new Error(`INSTAGRAM_GRAPH_BASE must be an absolute https url like https://graph.facebook.com/${version}, got "${raw}"`);
-  return u.toString().replace(/\/+$/, "");
+  if (u.protocol !== "https:" || u.username || u.password || u.search || u.hash || !/^\/v\d+\.\d+\/?$/.test(u.pathname)) throw new Error(hint);
+  return `${u.origin}${u.pathname.replace(/\/$/, "")}`;
 }
 
 /**

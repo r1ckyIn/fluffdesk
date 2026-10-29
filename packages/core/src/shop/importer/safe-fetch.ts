@@ -38,12 +38,14 @@ export interface SafeFetchBytesResult {
 export class ResponseTooLargeError extends Error {
   constructor(url: string, public readonly maxBytes: number) {
     super(`response larger than ${maxBytes} bytes: ${url}`);
+    this.name = "ResponseTooLargeError";
   }
 }
 
 export class UnsafeUrlError extends Error {
   constructor(url: string, reason: string) {
     super(`refusing to fetch ${url}: ${reason}`);
+    this.name = "UnsafeUrlError";
   }
 }
 

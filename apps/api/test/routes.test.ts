@@ -700,11 +700,50 @@ describe("instagram webhook", () => {
     expect(sends[0]!.headers.authorization).toBe(`Bearer ${IG_TOKEN}`);
     expect(JSON.parse(sends[0]!.body!)).toEqual({ recipient: { id: IGSID }, message: { text: "hello" } });
   });
-  it("INSTAGRAM_GRAPH_BASE must be an absolute https url, so a bare host from a config typo fails at startup instead of on every reply", () => {
-    expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "graph.facebook.com" })).toThrow(/INSTAGRAM_GRAPH_BASE/);
-    expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "http://graph.facebook.com/v21.0" })).toThrow(/INSTAGRAM_GRAPH_BASE/);
+  it("INSTAGRAM_GRAPH_BASE must be an https origin plus a version path, so config typos fail at startup instead of on every reply", () => {
+    for (const bad of [
+      "graph.facebook.com", // 裸主机
+      "http://graph.facebook.com/v21.0", // 不是 https
+      "https://graph.facebook.com", // 没有版本
+      "https://graph.facebook.com/v21.0?x=1", // query 会吞掉后面的路径
+      "https://graph.facebook.com/v21.0#frag",
+      "https://user:pw@graph.facebook.com/v21.0", // 凭据
+      "https://graph.facebook.com/v21.0/me/messages", // 把完整端点填进来
+    ]) {
+      expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: bad }), bad).toThrow(/INSTAGRAM_GRAPH_BASE/);
+    }
     expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "https://graph.facebook.com/v21.0" })).not.toThrow();
     expect(() => createApp(testRuntime(), { ...igEnv, INSTAGRAM_GRAPH_BASE: "https://graph.facebook.com/v21.0/" })).not.toThrow();
+  });
+  it("META_GRAPH_VERSION must look like v21.0, for both products", () => {
+    for (const bad of ["v21.0/", "https://graph.facebook.com/v21.0", "21.0", " v21.0"]) {
+      expect(() => createApp(testRuntime(), { ...igEnv, META_GRAPH_VERSION: bad }), bad).toThrow(/META_GRAPH_VERSION/);
+    }
+    expect(() => createApp(testRuntime(), { ...igEnv, META_GRAPH_VERSION: "v22.0" })).not.toThrow();
+  });
+  it("a configured base with a trailing slash still sends to exactly {base}/me/messages", async () => {
+    const graph = fakeGraph();
+    const rt = testRuntime();
+    rt.shops = new InMemoryShopRepo([shop, igShop]);
+    const app = createApp(rt, { ...igEnv, INSTAGRAM_GRAPH_BASE: "https://graph.instagram.test/v21.0/" }, { fetch: graph.fetchImpl, lookup: async () => ["93.184.216.34"] });
+    await app.request("/webhooks/instagram", signed(text("hi")));
+    await rt.background.drain();
+    expect(graph.sends()[0]!.url).toBe("https://graph.instagram.test/v21.0/me/messages");
+  });
+  it("a story mention or share that comes with text goes to the model like any text message", async () => {
+    const { app, rt, graph, drain } = igApp();
+    await app.request("/webhooks/instagram", signed(event({ mid: "mid.sm", text: "saw this on your story, how much?", attachments: [{ type: "story_mention", payload: { url: "https://lookaside.test/s" } }] })));
+    await drain();
+    expect(JSON.stringify((await convOf(rt))?.messages)).toContain("how much");
+    expect(JSON.parse(graph.sends()[0]!.body!).message.text).toBe("hello");
+  });
+  it("ignores an echo even when its sender id is not the shop account id (page-scoped sender on the unified shape)", async () => {
+    const { app, rt, graph, drain } = igApp();
+    const echo = { object: "instagram", entry: [{ id: "17841400000000001", messaging: [{ sender: { id: "9999999999" }, recipient: { id: IGSID }, message: { mid: "mid.e2", text: "hello", is_echo: true } }] }] };
+    await app.request("/webhooks/instagram", signed(echo));
+    await drain();
+    expect(await rt.conversations.get("ig:instagram:9999999999")).toBeUndefined();
+    expect(graph.calls).toHaveLength(0);
   });
   it("splits a long reply into several sends of at most 1000 utf-8 bytes each", async () => {
     const long = "报价区间以到店评估为准。".repeat(120); // 约 4300 字节
