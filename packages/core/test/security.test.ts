@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
-import { isPrivateAddress, safeFetchBytes, safeFetchHtml, UnsafeUrlError } from "../src/shop/importer/safe-fetch.js";
+import { isPrivateAddress, ResponseTooLargeError, safeFetchBytes, safeFetchHtml, UnsafeUrlError } from "../src/shop/importer/safe-fetch.js";
 import { importWebsite } from "../src/shop/importer/website.js";
 import { newConversation, runTurn, pruneOldImages, type AgentDeps } from "../src/agent/loop.js";
 import { defaultTools, holdBookingTool } from "../src/tools/index.js";
@@ -96,11 +96,15 @@ describe("safeFetchBytes 防 SSRF", () => {
     const toPrivate = (async () => new Response(null, { status: 302, headers: { location: "http://169.254.169.254/" } })) as unknown as typeof fetch;
     await expect(safeFetchBytes("https://a.example/", { fetch: toPrivate, lookup: publicLookup })).rejects.toThrow(/private address/);
   });
-  it("fails instead of truncating when the body exceeds maxBytes", async () => {
-    await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => bin(1001)) as never, lookup: publicLookup, maxBytes: 1000 })).rejects.toThrow(/larger than/);
+  it("fails with a typed error instead of truncating when the body exceeds maxBytes", async () => {
+    await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => bin(1001)) as never, lookup: publicLookup, maxBytes: 1000 })).rejects.toBeInstanceOf(ResponseTooLargeError);
     const ok = await safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => bin(1000)) as never, lookup: publicLookup, maxBytes: 1000 });
     expect(ok.bytes.length).toBe(1000);
     expect(ok.contentType).toBe("image/jpeg");
+  });
+  it("the typed errors carry their class name, so logs and serialised traces can tell them apart", () => {
+    expect(new ResponseTooLargeError("https://x.example/a", 10).name).toBe("ResponseTooLargeError");
+    expect(new UnsafeUrlError("https://x.example/a", "why").name).toBe("UnsafeUrlError");
   });
   it("surfaces non-2xx as an error", async () => {
     await expect(safeFetchBytes("https://cdn.example/a.jpg", { fetch: (async () => new Response("no", { status: 403 })) as never, lookup: publicLookup })).rejects.toThrow(/http 403/);
